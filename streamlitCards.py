@@ -35,7 +35,7 @@ import pandas as pd
 # # Load data
 # df = load_data()
 
-df = pd.read_csv('/Users/jacobelder/Documents/GitHub/CreditCardApp/CreditCards.csv')
+df = pd.read_csv('CreditCards.csv')
 
 # Streamlit UI
 st.title("Best Credit Card for Rewards")
