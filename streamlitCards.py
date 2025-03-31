@@ -8,34 +8,34 @@ Created on Sun Mar 16 16:25:57 2025
 import streamlit as st
 import pandas as pd
 
-# def load_data():
-#     data = {
-#         "Credit Card": [
-#             "Bank of America Customized Cash Rewards", "US Bank Cash Plus", "US Bank Cash Plus", "US Bank Altitude Go",
-#             "Discover It", "Discover It", "Discover It", "Chase Freedom Flex", "Chase Freedom Flex", "Capital One Savor",
-#             "Capital One Savor", "Capital One Savor", "Capital One Savor", "Capital One Quicksilver", "Wells Fargo Active Cash",
-#             "Wells Fargo Autograph", "Wells Fargo Autograph", "Wells Fargo Autograph", "Wells Fargo Autograph", "Wells Fargo Autograph", "Wells Fargo Autograph",
-#             "US Bank Altitude Connect"
-#         ],
-#         "Category": [
-#             "Online Shopping", "Department Stores", "Clothing Stores", "Dining", "Dining", "Home Improvement", "Streaming",
-#             "Grocery Stores", "Gym", "Dining", "Entertainment", "Streaming", "Grocery Stores", "Everything", "Everything",
-#             "Dining", "Travel", "Gas", "Transit", "Streaming", "Phone", "Travel"
-#         ],
-#         "Rewards": [
-#             3, 5, 5, 4, 5, 5, 5, 5, 5, 3, 3, 3, 3, 1.5, 2, 3, 3, 3, 3, 3, 3, 4
-#         ],
-#         "Type": [
-#             "Cash Back", "Cash Back", "Cash Back", "Points", "Cash Back", "Cash Back", "Cash Back", "Points", "Points", "Cash Back",
-#             "Cash Back", "Cash Back", "Cash Back", "Cash Back", "Cash Back", "Points", "Points", "Points", "Points", "Points", "Points", "Points"
-#         ]
-#     }
-#     return pd.DataFrame(data)
+def load_data():
+    data = {
+        "Credit Card": [
+            "Bank of America Customized Cash Rewards", "US Bank Cash Plus", "US Bank Cash Plus", "US Bank Altitude Go",
+            "Discover It", "Discover It", "Discover It", "Chase Freedom Flex", "Chase Freedom Flex", "Capital One Savor",
+            "Capital One Savor", "Capital One Savor", "Capital One Savor", "Capital One Quicksilver", "Wells Fargo Active Cash",
+            "Wells Fargo Autograph", "Wells Fargo Autograph", "Wells Fargo Autograph", "Wells Fargo Autograph", "Wells Fargo Autograph", "Wells Fargo Autograph",
+            "US Bank Altitude Connect"
+        ],
+        "Category": [
+            "Online Shopping", "Department Stores", "Clothing Stores", "Dining", "Dining", "Home Improvement", "Streaming",
+            "Grocery Stores", "Gym", "Dining", "Entertainment", "Streaming", "Grocery Stores", "Everything", "Everything",
+            "Dining", "Travel", "Gas", "Transit", "Streaming", "Phone", "Travel"
+        ],
+        "Rewards": [
+            3, 5, 5, 4, 5, 5, 5, 5, 5, 3, 3, 3, 3, 1.5, 2, 3, 3, 3, 3, 3, 3, 4
+        ],
+        "Type": [
+            "Cash Back", "Cash Back", "Cash Back", "Points", "Cash Back", "Cash Back", "Cash Back", "Points", "Points", "Cash Back",
+            "Cash Back", "Cash Back", "Cash Back", "Cash Back", "Cash Back", "Points", "Points", "Points", "Points", "Points", "Points", "Points"
+        ]
+    }
+    return pd.DataFrame(data)
 
-# # Load data
-# df = load_data()
+# Load data
+df = load_data()
 
-df = pd.read_csv('/Users/jacobelder/Documents/GitHub/CreditCardApp/CreditCards.csv')
+# df = pd.read_csv('/Users/jacobelder/Documents/GitHub/CreditCardApp/CreditCards.csv')
 
 # Streamlit UI
 st.title("Best Credit Card for Rewards")
