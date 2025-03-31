@@ -44,13 +44,17 @@ st.write("Select a category to see the best card to use:")
 # Get unique categories in ascending alphabetical order
 categories = sorted(df["Category"].unique())
 
-# Create buttons in multiple columns
-cols = st.columns(3)  # Create 3 columns for button layout
-selected_category = None
-
-for i, category in enumerate(categories):
-    if cols[i % 3].button(category):
-        selected_category = category
+# Responsive layout: Use multiple columns on larger screens, single column on mobile
+if st.columns(3)[0].button("Show as List (Mobile-Friendly)"):
+    for category in categories:
+        if st.button(category):
+            selected_category = category
+else:
+    cols = st.columns(3)  # Create 3 columns for button layout
+    selected_category = None
+    for i, category in enumerate(categories):
+        if cols[i % 3].button(category):
+            selected_category = category
 
 # Display the best card if a category is selected
 if selected_category:
