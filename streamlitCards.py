@@ -7,6 +7,8 @@ Created on Sun Mar 16 16:25:57 2025
 """
 import streamlit as st
 import pandas as pd
+import streamlit.components.v1 as components
+import time
 
 # def load_data():
 #     data = {
@@ -37,6 +39,33 @@ import pandas as pd
 
 df = pd.read_csv('CreditCards.csv')
 
+# Inject JavaScript to detect mobile screen width
+components.html("""
+<script>
+    const isMobile = window.innerWidth < 768;
+    window.parent.postMessage({ type: 'MOBILE_STATUS', isMobile: isMobile }, '*');
+</script>
+""", height=0)
+
+# Read the query param set by JS injection
+def detect_mobile():
+    query_params = st.experimental_get_query_params()
+    return query_params.get("mobile", ["false"])[0] == "true"
+
+# Add a listener that updates the query param when JS posts message
+components.html("""
+<script>
+window.addEventListener("message", (event) => {
+    if (event.data.type === "MOBILE_STATUS") {
+        const isMobile = event.data.isMobile;
+        const newUrl = new URL(window.location);
+        newUrl.searchParams.set("mobile", isMobile);
+        window.history.replaceState(null, "", newUrl);
+    }
+});
+</script>
+""", height=0)
+
 # Streamlit UI
 st.title("Best Credit Card for Rewards")
 st.write("Select a category to see the best card to use:")
@@ -44,8 +73,11 @@ st.write("Select a category to see the best card to use:")
 # Get unique categories in ascending alphabetical order
 categories = sorted(df["Category"].unique())
 
-# Display mode toggle
-use_list_format = st.checkbox("Use List Format (Mobile-Friendly)", value=False)
+# Automatically detect mobile, fallback to checkbox if JS hasn't run yet
+is_mobile = detect_mobile()
+
+# Display layout mode
+use_list_format = is_mobile or st.checkbox("Use List Format (Mobile-Friendly)", value=False)
 
 # Initialize selected category
 selected_category = None
