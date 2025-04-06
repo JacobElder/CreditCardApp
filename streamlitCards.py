@@ -49,8 +49,8 @@ components.html("""
 
 # Read the query param set by JS injection
 def detect_mobile():
-    query_params = st.experimental_get_query_params()
-    return query_params.get("mobile", ["false"])[0] == "true"
+    #query_params = st.experimental_get_query_params()
+    return st.query_params().get("mobile", ["false"])[0] == "true"
 
 # Add a listener that updates the query param when JS posts message
 components.html("""
