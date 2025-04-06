@@ -44,14 +44,19 @@ st.write("Select a category to see the best card to use:")
 # Get unique categories in ascending alphabetical order
 categories = sorted(df["Category"].unique())
 
-# Responsive layout: Use multiple columns on larger screens, single column on mobile
-if st.columns(3)[0].button("Show as List (Mobile-Friendly)"):
+# Display mode toggle
+use_list_format = st.checkbox("Use List Format (Mobile-Friendly)", value=False)
+
+# Initialize selected category
+selected_category = None
+
+# Render buttons based on layout choice
+if use_list_format:
     for category in categories:
         if st.button(category):
             selected_category = category
 else:
     cols = st.columns(3)  # Create 3 columns for button layout
-    selected_category = None
     for i, category in enumerate(categories):
         if cols[i % 3].button(category):
             selected_category = category
@@ -62,7 +67,7 @@ if selected_category:
     category_df = df[df["Category"] == selected_category]
     max_rewards = category_df["Rewards"].max()
     best_cards = category_df[category_df["Rewards"] == max_rewards]
-    
+
     for _, row in best_cards.iterrows():
         st.write(f"**Card:** {row['Credit Card']}")
         st.write(f"**Rewards:** {row['Rewards']} {row['Type']}")
