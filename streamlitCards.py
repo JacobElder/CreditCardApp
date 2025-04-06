@@ -42,7 +42,7 @@ df = pd.read_csv('CreditCards.csv')
 # Inject JavaScript to detect mobile screen width
 components.html("""
 <script>
-    const isMobile = window.innerWidth < 768;
+    const isMobile = window.innerWidth < 900;
     window.parent.postMessage({ type: 'MOBILE_STATUS', isMobile: isMobile }, '*');
 </script>
 """, height=0)
