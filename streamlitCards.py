@@ -116,9 +116,13 @@ normalized_df = df.copy()
 normalized_df["Normalized"] = normalized_df["Category"].map(category_aliases).fillna(df["Category"])
 
 citi_recommendations = []
+
+# Get the max reward from "Everything" category as fallback
+everything_max = df[df["Category"] == "Everything"]["Rewards"].max()
+
 for cat in citi_categories:
     competing_df = normalized_df[normalized_df["Normalized"] == cat]
-    best_other = competing_df["Rewards"].max() if not competing_df.empty else 0
+    best_other = competing_df["Rewards"].max() if not competing_df.empty else everything_max
     if best_other < 5:
         citi_recommendations.append((cat, best_other))
 
