@@ -117,13 +117,13 @@ normalized_df["Normalized"] = normalized_df["Category"].map(category_aliases).fi
 
 citi_recommendations = []
 for cat in citi_categories:
-    competing_rewards = normalized_df[normalized_df["Normalized"] == cat]["Rewards"]
-    best_other = competing_rewards.max() if not competing_rewards.empty else 0
+    competing_df = normalized_df[normalized_df["Normalized"] == cat]
+    best_other = competing_df["Rewards"].max() if not competing_df.empty else 0
     if best_other < 5:
-        citi_recommendations.append(cat)
+        citi_recommendations.append((cat, best_other))
 
 if citi_recommendations:
-    for cat in sorted(citi_recommendations):
-        st.write(f"✅ {cat} (No other card beats 5%)")
+    for cat, max_other in sorted(citi_recommendations):
+        st.write(f"✅ {cat} (Next best: {max_other}%)")
 else:
     st.write("All Citi Custom Cash categories currently have better or equal offers from other cards.")
