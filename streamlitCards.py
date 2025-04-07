@@ -76,8 +76,6 @@ is_mobile = any(device in user_agent for device in ["iphone", "android", "ipad",
 if "use_list_format" not in st.session_state:
     st.session_state.use_list_format = is_mobile
 
-st.checkbox("Use List Format (Mobile-Friendly)", value=st.session_state.use_list_format, key="use_list_format")
-
 # Try to detect mobile based on user agent
 user_agent = st.query_params.get("user-agent", [""])[0].lower()
 is_mobile = any(device in user_agent for device in ["iphone", "android", "ipad", "mobile"])
