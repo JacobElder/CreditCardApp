@@ -10,33 +10,6 @@ import pandas as pd
 import streamlit.components.v1 as components
 import time
 
-# def load_data():
-#     data = {
-#         "Credit Card": [
-#             "Bank of America Customized Cash Rewards", "US Bank Cash Plus", "US Bank Cash Plus", "US Bank Altitude Go",
-#             "Discover It", "Discover It", "Discover It", "Chase Freedom Flex", "Chase Freedom Flex", "Capital One Savor",
-#             "Capital One Savor", "Capital One Savor", "Capital One Savor", "Capital One Quicksilver", "Wells Fargo Active Cash",
-#             "Wells Fargo Autograph", "Wells Fargo Autograph", "Wells Fargo Autograph", "Wells Fargo Autograph", "Wells Fargo Autograph", "Wells Fargo Autograph",
-#             "US Bank Altitude Connect"
-#         ],
-#         "Category": [
-#             "Online Shopping", "Department Stores", "Clothing Stores", "Dining", "Dining", "Home Improvement", "Streaming",
-#             "Grocery Stores", "Gym", "Dining", "Entertainment", "Streaming", "Grocery Stores", "Everything", "Everything",
-#             "Dining", "Travel", "Gas", "Transit", "Streaming", "Phone", "Travel"
-#         ],
-#         "Rewards": [
-#             3, 5, 5, 4, 5, 5, 5, 5, 5, 3, 3, 3, 3, 1.5, 2, 3, 3, 3, 3, 3, 3, 4
-#         ],
-#         "Type": [
-#             "Cash Back", "Cash Back", "Cash Back", "Points", "Cash Back", "Cash Back", "Cash Back", "Points", "Points", "Cash Back",
-#             "Cash Back", "Cash Back", "Cash Back", "Cash Back", "Cash Back", "Points", "Points", "Points", "Points", "Points", "Points", "Points"
-#         ]
-#     }
-#     return pd.DataFrame(data)
-
-# # Load data
-# df = load_data()
-
 df = pd.read_csv('CreditCards.csv')
 
 # Inject JavaScript to detect mobile screen width
@@ -66,6 +39,28 @@ window.addEventListener("message", (event) => {
 </script>
 """, height=0)
 
+# Normalize category labels
+category_aliases = {
+    "Dining": "Restaurants",
+    "Restaurants": "Restaurants",
+    "Gas": "Gas",
+    "Grocery Stores": "Grocery Stores",
+    "Travel": "Travel",
+    "Transit": "Transit",
+    "Streaming": "Streaming",
+    "Drugstores": "Drugstores",
+    "Home Improvement": "Home Improvement",
+    "Home Improvement Stores": "Home Improvement",
+    "Gym": "Fitness Clubs",
+    "Entertainment": "Live Entertainment"
+}
+
+# Citi Custom Cash eligible categories
+citi_categories = [
+    "Restaurants", "Gas", "Grocery Stores", "Travel", "Transit",
+    "Streaming", "Drugstores", "Home Improvement", "Fitness Clubs", "Live Entertainment"
+]
+
 # Streamlit UI
 st.title("Best Credit Card for Rewards")
 st.write("Select a category to see the best card to use:")
@@ -73,10 +68,9 @@ st.write("Select a category to see the best card to use:")
 # Get unique categories in ascending alphabetical order
 categories = sorted(df["Category"].unique())
 
-# Automatically detect mobile, fallback to checkbox if JS hasn't run yet
-is_mobile = detect_mobile()
-
-# Display layout mode
+# Try to detect mobile based on user agent
+user_agent = st.experimental_get_query_params().get("user-agent", [""])[0].lower()
+is_mobile = any(device in user_agent for device in ["iphone", "android", "ipad", "mobile"])
 use_list_format = is_mobile or st.checkbox("Use List Format (Mobile-Friendly)", value=False)
 
 # Initialize selected category
@@ -88,7 +82,7 @@ if use_list_format:
         if st.button(category):
             selected_category = category
 else:
-    cols = st.columns(3)  # Create 3 columns for button layout
+    cols = st.columns(3)
     for i, category in enumerate(categories):
         if cols[i % 3].button(category):
             selected_category = category
@@ -104,3 +98,24 @@ if selected_category:
         st.write(f"**Card:** {row['Credit Card']}")
         st.write(f"**Rewards:** {row['Rewards']} {row['Type']}")
         st.write("---")
+
+# Citi Custom Cash Recommendation Section
+st.subheader("📣 Citi Custom Cash Optimal Categories")
+st.write("Each month, Citi Custom Cash gives 5% back on your top spending category from a set list. Here’s where it currently offers the best value:")
+
+# Remap all categories in df to canonical forms
+normalized_df = df.copy()
+normalized_df["Normalized"] = normalized_df["Category"].map(category_aliases).fillna(df["Category"])
+
+citi_recommendations = []
+for cat in citi_categories:
+    competing_rewards = normalized_df[normalized_df["Normalized"] == cat]["Rewards"]
+    best_other = competing_rewards.max() if not competing_rewards.empty else 0
+    if best_other < 5:
+        citi_recommendations.append(cat)
+
+if citi_recommendations:
+    for cat in sorted(citi_recommendations):
+        st.write(f"✅ {cat} (No other card beats 5%)")
+else:
+    st.write("All Citi Custom Cash categories currently have better or equal offers from other cards.")
