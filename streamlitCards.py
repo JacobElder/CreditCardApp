@@ -45,6 +45,7 @@ category_aliases = {
     "Restaurants": "Restaurants",
     "Gas": "Gas",
     "Grocery Stores": "Grocery Stores",
+    "Groceries": "Grocery Stores",
     "Travel": "Travel",
     "Transit": "Transit",
     "Streaming": "Streaming",
@@ -189,18 +190,27 @@ def update_csv(card_name, categories, rewards, card_type, is_transferable):
         for cat in categories:
             f.write(f"{card_name},{cat},{rewards},{card_type},{is_transferable}\n")
 
-def get_rotating_categories(card_name, search_query):
+from thefuzz import process
+
+def get_rotating_categories(card_name, search_query, category_aliases):
     try:
         results = google_web_search(query=search_query)
         # Find the categories in the search result text
-        # This is a simplified parsing logic. It might need to be adjusted based on the search results format.
-        # It assumes the categories are listed after "are:"
         match = re.search(r"are:\s*(.*)", results, re.IGNORECASE)
         if match:
             categories = [cat.strip() for cat in match.group(1).split(',')]
             # further clean up the categories
             categories = [cat.replace('and ', '').strip() for cat in categories]
-            return categories
+            
+            # Fuzzy match the categories
+            normalized_categories = []
+            for cat in categories:
+                match, score = process.extractOne(cat, category_aliases.keys())
+                if score > 70:
+                    normalized_categories.append(category_aliases[match])
+                else:
+                    normalized_categories.append(cat) # Add the original if no good match is found
+            return normalized_categories
         else:
             st.warning(f"Could not find categories for {card_name} in the search results.")
             return None
@@ -219,14 +229,14 @@ if st.button("Update Categories Dynamically"):
 
     # Update Discover It
     discover_query = f"discover it rotating categories Q{current_quarter} {current_year}"
-    discover_categories = get_rotating_categories("Discover It", discover_query)
+    discover_categories = get_rotating_categories("Discover It", discover_query, category_aliases)
     if discover_categories:
         update_csv("Discover It", discover_categories, 5, "Cash Back", False)
         st.success("Discover It categories updated!")
 
     # Update Chase Freedom Flex
     cff_query = f"chase freedom flex rotating categories Q{current_quarter} {current_year}"
-    cff_categories = get_rotating_categories("Chase Freedom Flex", cff_query)
+    cff_categories = get_rotating_categories("Chase Freedom Flex", cff_query, category_aliases)
     if cff_categories:
         update_csv("Chase Freedom Flex", cff_categories, 5, "Points", True)
         st.success("Chase Freedom Flex categories updated!")
