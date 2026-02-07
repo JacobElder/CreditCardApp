@@ -1,26 +1,30 @@
-﻿Credit Card,Category,Rewards,Type
-Bank of America Customized Cash Rewards,Online Shopping,3,Cash Back
-US Bank Cash Plus,Department Stores,5,Cash Back
-US Bank Cash Plus,Clothing Stores,5,Cash Back
-US Bank Altitude Go,Dining,4,Points
-Discover It,Gas Stations,5,Cash Back
-Discover It,EV,5,Cash Back
-Discover It,Public Transit,5,Cash Back
-Discover It,Utilities,5,Cash Back
-Chase Freedom Flex,Gas Stations,5,Points
-Chase Freedom Flex,EV ,5,Points
-Chase Freedom Flex,Entertainment,5,Points
-Chase Freedom Flex,Instacart,5,Points
-Capital One Savor,Dining,3,Cash Back
-Capital One Savor,Entertainment,3,Cash Back
-Capital One Savor,Streaming,3,Cash Back
-Capital One Savor,Grocery Stores,3,Cash Back
-Capital One Quicksilver,Everything,1.5,Cash Back
-Wells Fargo Active Cash,Everything,2,Cash Back
-Wells Fargo Autograph,Dining,3,Points
-Wells Fargo Autograph,Travel,3,Points
-Wells Fargo Autograph,Gas,3,Points
-Wells Fargo Autograph,Transit,3,Points
-Wells Fargo Autograph,Streaming,3,Points
-Wells Fargo Autograph,Phone,3,Points
-US Bank Altitude Connect,Travel,4,Points
+﻿Credit Card,Category,Rewards,Type,Transferable
+Bank of America Customized Cash Rewards,Online Shopping,3,Cash Back,False
+US Bank Cash Plus,Department Stores,5,Cash Back,False
+US Bank Cash Plus,Clothing Stores,5,Cash Back,False
+US Bank Altitude Go,Dining,4,Points,False
+Capital One Savor,Dining,3,Cash Back,False
+Capital One Savor,Entertainment,3,Cash Back,False
+Capital One Savor,Streaming,3,Cash Back,False
+Capital One Savor,Grocery Stores,3,Cash Back,False
+Capital One Quicksilver,Everything,1.5,Cash Back,False
+Wells Fargo Active Cash,Everything,2,Cash Back,True
+Wells Fargo Autograph,Dining,3,Points,True
+Wells Fargo Autograph,Travel,3,Points,True
+Wells Fargo Autograph,Gas,3,Points,True
+Wells Fargo Autograph,Transit,3,Points,True
+Wells Fargo Autograph,Streaming,3,Points,True
+Wells Fargo Autograph,Phone,3,Points,True
+US Bank Altitude Connect,Travel,4,Points,False
+Discover It,Grocery Stores,5,Cash Back,False
+Discover It,Wholesale Clubs,5,Cash Back,False
+Discover It,Select Streaming Services,5,Cash Back,False
+Chase Freedom Flex,Norwegian Cruise Line®,5,Points,True
+Chase Freedom Flex,Dining,5,Points,True
+Chase Freedom Flex,the American Heart Association®,5,Points,True
+Chase Sapphire Preferred,Chase Travel,5,Points,True
+Chase Sapphire Preferred,Dining,3,Points,True
+Chase Sapphire Preferred,Streaming,3,Points,True
+Chase Sapphire Preferred,Online Groceries,3,Points,True
+Chase Sapphire Preferred,Travel,2,Points,True
+Chase Freedom Unlimited,Everything,1.5,Points,True

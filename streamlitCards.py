@@ -98,36 +98,94 @@ else:
 # Display the best card if a category is selected
 if selected_category:
     st.subheader(f"Best card(s) for {selected_category}:")
-    category_df = df[df["Category"] == selected_category]
-    max_rewards = category_df["Rewards"].max()
-    best_cards = category_df[category_df["Rewards"] == max_rewards]
+    category_df = df[df["Category"] == selected_category].copy()
+    
+    # Define the boost for transferable points
+    transferable_points_boost = 1.25 
+    
+    # Apply the boost to transferable points
+    category_df['Adjusted Rewards'] = category_df.apply(
+        lambda row: row['Rewards'] * transferable_points_boost if row['Transferable'] else row['Rewards'],
+        axis=1
+    )
+    
+    max_rewards = category_df["Adjusted Rewards"].max()
+    best_cards = category_df[category_df["Adjusted Rewards"] == max_rewards]
 
     for _, row in best_cards.iterrows():
         st.write(f"**Card:** {row['Credit Card']}")
-        st.write(f"**Rewards:** {row['Rewards']} {row['Type']}")
+        if row['Transferable']:
+            st.write(f"**Rewards:** {row['Adjusted Rewards']:.2f}% ({row['Rewards']} {row['Type']} with {transferable_points_boost}x boost)")
+            st.write("_Points are transferable, increasing their value._")
+        else:
+            st.write(f"**Rewards:** {row['Rewards']} {row['Type']}")
         st.write("---")
 
 # Citi Custom Cash Recommendation Section
 st.subheader("📣 Citi Custom Cash Optimal Categories")
 st.write("Each month, Citi Custom Cash gives 5% back on your top spending category from a set list. Here’s where it currently offers the best value:")
 
+
 # Remap all categories in df to canonical forms
 normalized_df = df.copy()
 normalized_df["Normalized"] = normalized_df["Category"].map(category_aliases).fillna(df["Category"])
 
+# Apply the boost to transferable points for Citi recommendations
+transferable_points_boost = 1.25
+normalized_df['Adjusted Rewards'] = normalized_df.apply(
+    lambda row: row['Rewards'] * transferable_points_boost if row['Transferable'] else row['Rewards'],
+    axis=1
+)
+
 citi_recommendations = []
 
 # Get the max reward from "Everything" category as fallback
-everything_max = df[df["Category"] == "Everything"]["Rewards"].max()
+everything_max = normalized_df[normalized_df["Category"] == "Everything"]["Adjusted Rewards"].max()
 
 for cat in citi_categories:
     competing_df = normalized_df[normalized_df["Normalized"] == cat]
-    best_other = competing_df["Rewards"].max() if not competing_df.empty else everything_max
+    best_other = competing_df["Adjusted Rewards"].max() if not competing_df.empty else everything_max
     if best_other < 5:
         citi_recommendations.append((cat, best_other))
 
 if citi_recommendations:
     for cat, max_other in sorted(citi_recommendations):
-        st.write(f"✅ {cat} (Next best: {max_other}%)")
+        st.write(f"✅ {cat} (Next best: {max_other:.2f}%)")
 else:
     st.write("All Citi Custom Cash categories currently have better or equal offers from other cards.")
+
+
+def update_csv(card_name, categories, rewards, card_type, is_transferable):
+    try:
+        with open('CreditCards.csv', 'r') as f:
+            lines = f.readlines()
+    except FileNotFoundError:
+        st.error("Error: CreditCards.csv not found. Please make sure the file exists in the same directory as the script.")
+        return
+
+    with open('CreditCards.csv', 'w') as f:
+        for line in lines:
+            if card_name not in line:
+                f.write(line)
+        for cat in categories:
+            f.write(f"{card_name},{cat},{rewards},{card_type},{is_transferable}\n")
+
+# Section for manually updating rotating categories
+st.subheader("🔄 Update Rotating Categories")
+st.write("Enter the new quarterly categories for your rotating category cards.")
+
+discover_categories = st.text_input("Discover It Categories (comma-separated)", "")
+cff_categories = st.text_input("Chase Freedom Flex Categories (comma-separated)", "")
+
+if st.button("Update Categories"):
+    if discover_categories:
+        new_discover = [cat.strip() for cat in discover_categories.split(',')]
+        update_csv("Discover It", new_discover, 5, "Cash Back", False)
+        st.success("Discover It categories updated!")
+
+    if cff_categories:
+        new_cff = [cat.strip() for cat in cff_categories.split(',')]
+        update_csv("Chase Freedom Flex", new_cff, 5, "Points", True)
+        st.success("Chase Freedom Flex categories updated!")
+    
+    st.rerun()
