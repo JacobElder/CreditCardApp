@@ -122,8 +122,8 @@ if selected_category:
         st.write("---")
 
 # Citi Custom Cash Recommendation Section
-st.subheader("📣 Citi Custom Cash Optimal Categories")
-st.write("Each month, Citi Custom Cash gives 5% back on your top spending category from a set list. Here’s where it currently offers the best value:")
+st.subheader("Citi Custom Cash Eligible Categories")
+st.write("Each month, Citi Custom Cash gives 5% back on your top spending category from the set list. Here are all the eligible categories and the next best offer for each:")
 
 
 # Remap all categories in df to canonical forms
@@ -137,7 +137,7 @@ normalized_df['Adjusted Rewards'] = normalized_df.apply(
     axis=1
 )
 
-citi_recommendations = []
+citi_full_list = []
 
 # Get the max reward from "Everything" category as fallback
 everything_max = normalized_df[normalized_df["Category"] == "Everything"]["Adjusted Rewards"].max()
@@ -145,15 +145,17 @@ everything_max = normalized_df[normalized_df["Category"] == "Everything"]["Adjus
 for cat in citi_categories:
     competing_df = normalized_df[normalized_df["Normalized"] == cat]
     best_other = competing_df["Adjusted Rewards"].max() if not competing_df.empty else everything_max
-    if best_other < 5:
-        citi_recommendations.append((cat, best_other))
+    citi_full_list.append((cat, best_other))
 
-if citi_recommendations:
-    for cat, max_other in sorted(citi_recommendations):
-        st.write(f"✅ {cat} (Next best: {max_other:.2f}%)")
+if citi_full_list:
+    for cat, max_other in sorted(citi_full_list):
+        st.write(f"{cat} (Next best: {max_other:.2f}%)")
 else:
-    st.write("All Citi Custom Cash categories currently have better or equal offers from other cards.")
+    st.write("Could not retrieve Citi Custom Cash categories.")
 
+
+import re
+from datetime import datetime
 
 def update_csv(card_name, categories, rewards, card_type, is_transferable):
     try:
@@ -170,22 +172,46 @@ def update_csv(card_name, categories, rewards, card_type, is_transferable):
         for cat in categories:
             f.write(f"{card_name},{cat},{rewards},{card_type},{is_transferable}\n")
 
-# Section for manually updating rotating categories
-st.subheader("🔄 Update Rotating Categories")
-st.write("Enter the new quarterly categories for your rotating category cards.")
+def get_rotating_categories(card_name, search_query):
+    try:
+        results = google_web_search(query=search_query)
+        # Find the categories in the search result text
+        # This is a simplified parsing logic. It might need to be adjusted based on the search results format.
+        # It assumes the categories are listed after "are:"
+        match = re.search(r"are:\s*(.*)", results, re.IGNORECASE)
+        if match:
+            categories = [cat.strip() for cat in match.group(1).split(',')]
+            # further clean up the categories
+            categories = [cat.replace('and ', '').strip() for cat in categories]
+            return categories
+        else:
+            st.warning(f"Could not find categories for {card_name} in the search results.")
+            return None
+    except Exception as e:
+        st.error(f"Error fetching categories for {card_name}: {e}")
+        return None
 
-discover_categories = st.text_input("Discover It Categories (comma-separated)", "")
-cff_categories = st.text_input("Chase Freedom Flex Categories (comma-separated)", "")
+# Section for dynamically updating rotating categories
+st.subheader("Update Rotating Categories")
+st.write("Click the button to automatically update the quarterly categories for your rotating cards.")
 
-if st.button("Update Categories"):
+if st.button("Update Categories Dynamically"):
+    current_month = datetime.now().month
+    current_year = datetime.now().year
+    current_quarter = (current_month - 1) // 3 + 1
+
+    # Update Discover It
+    discover_query = f"discover it rotating categories Q{current_quarter} {current_year}"
+    discover_categories = get_rotating_categories("Discover It", discover_query)
     if discover_categories:
-        new_discover = [cat.strip() for cat in discover_categories.split(',')]
-        update_csv("Discover It", new_discover, 5, "Cash Back", False)
+        update_csv("Discover It", discover_categories, 5, "Cash Back", False)
         st.success("Discover It categories updated!")
 
+    # Update Chase Freedom Flex
+    cff_query = f"chase freedom flex rotating categories Q{current_quarter} {current_year}"
+    cff_categories = get_rotating_categories("Chase Freedom Flex", cff_query)
     if cff_categories:
-        new_cff = [cat.strip() for cat in cff_categories.split(',')]
-        update_csv("Chase Freedom Flex", new_cff, 5, "Points", True)
+        update_csv("Chase Freedom Flex", cff_categories, 5, "Points", True)
         st.success("Chase Freedom Flex categories updated!")
     
     st.rerun()
