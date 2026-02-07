@@ -87,12 +87,12 @@ selected_category = None
 # Render buttons based on layout choice
 if use_list_format:
     for category in categories:
-        if st.button(category):
+        if st.button(category.title()):
             selected_category = category
 else:
     cols = st.columns(3)
     for i, category in enumerate(categories):
-        if cols[i % 3].button(category):
+        if cols[i % 3].button(category.title()):
             selected_category = category
 
 # Display the best card if a category is selected
@@ -109,17 +109,34 @@ if selected_category:
         axis=1
     )
     
-    max_rewards = category_df["Adjusted Rewards"].max()
-    best_cards = category_df[category_df["Adjusted Rewards"] == max_rewards]
+    # Get unique reward values and sort them
+    unique_rewards = sorted(category_df['Adjusted Rewards'].unique(), reverse=True)
+    
+    # Show the best option(s)
+    if unique_rewards:
+        st.write("**Best Option(s):**")
+        best_cards = category_df[category_df['Adjusted Rewards'] == unique_rewards[0]]
+        for _, row in best_cards.iterrows():
+            st.write(f"**Card:** {row['Credit Card']}")
+            if row['Transferable']:
+                st.write(f"**Rewards:** {row['Adjusted Rewards']:.2f}% ({row['Rewards']} {row['Type']} with {transferable_points_boost}x boost)")
+                st.write("_Points are transferable, increasing their value._")
+            else:
+                st.write(f"**Rewards:** {row['Rewards']} {row['Type']}")
+            st.write("---")
 
-    for _, row in best_cards.iterrows():
-        st.write(f"**Card:** {row['Credit Card']}")
-        if row['Transferable']:
-            st.write(f"**Rewards:** {row['Adjusted Rewards']:.2f}% ({row['Rewards']} {row['Type']} with {transferable_points_boost}x boost)")
-            st.write("_Points are transferable, increasing their value._")
-        else:
-            st.write(f"**Rewards:** {row['Rewards']} {row['Type']}")
-        st.write("---")
+    # Show the next best option(s)
+    if len(unique_rewards) > 1:
+        st.write("**Next Best Option(s):**")
+        next_best_cards = category_df[category_df['Adjusted Rewards'] == unique_rewards[1]]
+        for _, row in next_best_cards.iterrows():
+            st.write(f"**Card:** {row['Credit Card']}")
+            if row['Transferable']:
+                st.write(f"**Rewards:** {row['Adjusted Rewards']:.2f}% ({row['Rewards']} {row['Type']} with {transferable_points_boost}x boost)")
+                st.write("_Points are transferable, increasing their value._")
+            else:
+                st.write(f"**Rewards:** {row['Rewards']} {row['Type']}")
+            st.write("---")
 
 # Citi Custom Cash Recommendation Section
 st.subheader("Citi Custom Cash Eligible Categories")
