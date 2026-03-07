@@ -1,0 +1,12 @@
+Card,Category,Rewards,Type,Transferable,Start_Month,End_Month
+Discover It,Grocery Stores,5,Cash Back,False,1,3
+Discover It,Wholesale Clubs,5,Cash Back,False,1,3
+Discover It,Streaming,5,Cash Back,False,1,3
+Chase Freedom Flex,Dining,5,Points,True,1,3
+Chase Freedom Flex,Norwegian Cruise Line,5,Points,True,1,3
+Chase Freedom Flex,American Heart Association,5,Points,True,1,3
+Discover It,Restaurants,5,Cash Back,False,4,6
+Discover It,Home Improvement,5,Cash Back,False,4,6
+Chase Freedom Flex,Amazon,5,Points,True,4,6
+Chase Freedom Flex,Chase Travel,5,Points,True,4,6
+Chase Freedom Flex,Feeding America,5,Points,True,4,6

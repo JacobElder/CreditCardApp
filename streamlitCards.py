@@ -1,244 +1,165 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Created on Sun Mar 16 16:25:57 2025
-
-@author: jacobelder
-"""
 import streamlit as st
 import pandas as pd
 import streamlit.components.v1 as components
-import time
+from datetime import datetime
+import requests
+from io import StringIO
 
-df = pd.read_csv('CreditCards.csv')
+# ==========================================
+# CONFIGURATION & USER PREFERENCES
+# ==========================================
+SHEET_ID = "1768M96W_Bhrna5PMGNuMOWB-i05F7vE1cVq8zO97I-w"
 
-# Inject JavaScript to detect mobile screen width
-components.html("""
-<script>
-    const isMobile = window.innerWidth < 900;
-    window.parent.postMessage({ type: 'MOBILE_STATUS', isMobile: isMobile }, '*');
-</script>
-""", height=0)
-
-# Read the query param set by JS injection
-def detect_mobile():
-    #query_params = st.experimental_get_query_params()
-    return st.query_params.get("mobile", ["false"])[0] == "true"
-
-# Add a listener that updates the query param when JS posts message
-components.html("""
-<script>
-window.addEventListener("message", (event) => {
-    if (event.data.type === "MOBILE_STATUS") {
-        const isMobile = event.data.isMobile;
-        const newUrl = new URL(window.location);
-        newUrl.searchParams.set("mobile", isMobile);
-        window.history.replaceState(null, "", newUrl);
-    }
-});
-</script>
-""", height=0)
-
-# Normalize category labels
-category_aliases = {
-    "Dining": "Restaurants",
-    "Restaurants": "Restaurants",
-    "Gas": "Gas",
-    "Grocery Stores": "Grocery Stores",
-    "Groceries": "Grocery Stores",
-    "Travel": "Travel",
-    "Transit": "Transit",
-    "Streaming": "Streaming",
-    "Drugstores": "Drugstores",
-    "Home Improvement": "Home Improvement",
-    "Home Improvement Stores": "Home Improvement",
-    "Gym": "Fitness Clubs",
-    "Entertainment": "Live Entertainment"
+# Set to True if you have the "Premium" card required for transfers (e.g. Sapphire, Autograph)
+ENABLE_BOOSTS = {
+    "Chase": True,
+    "Wells Fargo": True,
+    "Citi": False,
+    "Capital One": False,
+    "Amex": False,
 }
 
-# Citi Custom Cash eligible categories
+# Empirical Valuations (CPP / 100) - March 2026
+VALUATIONS = {
+    "Chase": 2.0,       
+    "Wells Fargo": 1.6, 
+    "Citi": 1.8,        
+    "Capital One": 1.85,
+    "Amex": 2.0,        
+    "Default": 1.0      
+}
+
+def get_issuer(card_name):
+    """Identifies the issuer based on the card name."""
+    card_name = card_name.lower()
+    if "chase" in card_name: return "Chase"
+    if "wells fargo" in card_name: return "Wells Fargo"
+    if "citi" in card_name: return "Citi"
+    if "capital one" in card_name: return "Capital One"
+    if "discover" in card_name: return "Discover"
+    if "amex" in card_name or "american express" in card_name: return "Amex"
+    return "Default"
+
+@st.cache_data(ttl=3600)
+def fetch_data():
+    """Fetches Fixed and Rotating cards from Google Sheets and handles duplicates."""
+    try:
+        def get_sheet_url(sheet_name):
+            return f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={sheet_name}"
+
+        # Fetch sheets
+        fixed_resp = requests.get(get_sheet_url("Fixed"), timeout=5)
+        rotating_resp = requests.get(get_sheet_url("Rotating"), timeout=5)
+        
+        fixed_df = pd.read_csv(StringIO(fixed_resp.text)) if fixed_resp.status_code == 200 else pd.DataFrame()
+        rotating_df = pd.read_csv(StringIO(rotating_resp.text)) if rotating_resp.status_code == 200 else pd.DataFrame()
+
+        # Filter rotating for current month
+        now = datetime.now()
+        if not rotating_df.empty and 'Start_Month' in rotating_df.columns:
+            rotating_df = rotating_df[
+                (rotating_df['Start_Month'] <= now.month) & 
+                (rotating_df['End_Month'] >= now.month)
+            ]
+            rotating_df = rotating_df.rename(columns={'Card': 'Credit Card'})
+
+        # Combine data
+        # To handle duplicates: we put rotating_df last and use drop_duplicates.
+        # This way, if 'Discover It' is in both, the version with the Rotating categories wins.
+        combined = pd.concat([fixed_df, rotating_df], ignore_index=True)
+        
+        # Deduplicate based on Credit Card and Category
+        # keep='last' ensures the Rotating values (which were appended last) are kept
+        combined = combined.drop_duplicates(subset=['Credit Card', 'Category'], keep='last')
+        
+        return combined[['Credit Card', 'Category', 'Rewards', 'Type', 'Transferable']]
+    except Exception as e:
+        st.error(f"Error fetching data: {e}. Check sheet tab names (Fixed/Rotating).")
+        return pd.read_csv('CreditCards.csv')
+
+# Load and Process Data
+df = fetch_data()
+
+def calculate_adjusted_rewards(row):
+    """Applies empirical point valuations ONLY if user has the premium card for that issuer."""
+    if not row['Transferable']:
+        return row['Rewards']
+    
+    issuer = get_issuer(row['Credit Card'])
+    
+    # Check if user has the premium card to unlock transfers for this issuer
+    if not ENABLE_BOOSTS.get(issuer, False):
+        return row['Rewards']
+    
+    multiplier = VALUATIONS.get(issuer, VALUATIONS["Default"])
+    return row['Rewards'] * multiplier
+
+df['Adjusted Rewards'] = df.apply(calculate_adjusted_rewards, axis=1)
+
+# Normalization & UI
+category_aliases = {
+    "Dining": "Restaurants", "Restaurants": "Restaurants", "Gas": "Gas",
+    "Grocery Stores": "Grocery Stores", "Groceries": "Grocery Stores",
+    "Travel": "Travel", "Transit": "Transit", "Streaming": "Streaming",
+    "Drugstores": "Drugstores", "Home Improvement": "Home Improvement",
+    "Home Improvement Stores": "Home Improvement", "Gym": "Fitness Clubs",
+    "Entertainment": "Live Entertainment", "Amazon": "Amazon"
+}
+
 citi_categories = [
     "Restaurants", "Gas", "Grocery Stores", "Travel", "Transit",
     "Streaming", "Drugstores", "Home Improvement", "Fitness Clubs", "Live Entertainment"
 ]
 
-# Streamlit UI
 st.title("Best Credit Card for Rewards")
-st.write("Select a category to see the best card to use:")
+st.write(f"Current Date: {datetime.now().strftime('%B %d, %Y')}")
 
-# Get unique categories in ascending alphabetical order
+# Layout setup
+user_agent = st.query_params.get("user-agent", [""])[0].lower()
+is_mobile = any(device in user_agent for device in ["iphone", "android", "ipad", "mobile"])
+use_list_format = st.checkbox("Mobile Layout", value=is_mobile)
+
+# Selection
 categories = sorted(df["Category"].unique())
-
-# Detect mobile using user-agent workaround
-user_agent = st.query_params.get("user-agent", [""])[0].lower()
-is_mobile = any(device in user_agent for device in ["iphone", "android", "ipad", "mobile"])
-
-# Use session state for layout toggle
-if "use_list_format" not in st.session_state:
-    st.session_state.use_list_format = is_mobile
-
-# Try to detect mobile based on user agent
-user_agent = st.query_params.get("user-agent", [""])[0].lower()
-is_mobile = any(device in user_agent for device in ["iphone", "android", "ipad", "mobile"])
-use_list_format = is_mobile or st.checkbox("Use List Format (Mobile-Friendly)", value=False)
-
-# Initialize selected category
 selected_category = None
 
-# Render buttons based on layout choice
 if use_list_format:
-    for category in categories:
-        if st.button(category.title()):
-            selected_category = category
+    for cat in categories:
+        if st.button(cat.title()): selected_category = cat
 else:
     cols = st.columns(3)
-    for i, category in enumerate(categories):
-        if cols[i % 3].button(category.title()):
-            selected_category = category
+    for i, cat in enumerate(categories):
+        if cols[i % 3].button(cat.title()): selected_category = cat
 
-# Display the best card if a category is selected
 if selected_category:
     st.subheader(f"Best card(s) for {selected_category}:")
-    category_df = df[df["Category"] == selected_category].copy()
+    cat_df = df[df["Category"] == selected_category].sort_values(by="Adjusted Rewards", ascending=False)
     
-    # Define the boost for transferable points
-    transferable_points_boost = 1.25 
-    
-    # Apply the boost to transferable points
-    category_df['Adjusted Rewards'] = category_df.apply(
-        lambda row: row['Rewards'] * transferable_points_boost if row['Transferable'] else row['Rewards'],
-        axis=1
-    )
-    
-    # Get unique reward values and sort them
-    unique_rewards = sorted(category_df['Adjusted Rewards'].unique(), reverse=True)
-    
-    # Show the best option(s)
-    if unique_rewards:
-        st.write("**Best Option(s):**")
-        best_cards = category_df[category_df['Adjusted Rewards'] == unique_rewards[0]]
-        for _, row in best_cards.iterrows():
-            st.write(f"**Card:** {row['Credit Card']}")
-            if row['Transferable']:
-                st.write(f"**Rewards:** {row['Adjusted Rewards']:.2f}% ({row['Rewards']} {row['Type']} with {transferable_points_boost}x boost)")
-                st.write("_Points are transferable, increasing their value._")
-            else:
-                st.write(f"**Rewards:** {row['Rewards']} {row['Type']}")
-            st.write("---")
-
-    # Show the next best option(s)
-    if len(unique_rewards) > 1:
-        st.write("**Next Best Option(s):**")
-        next_best_cards = category_df[category_df['Adjusted Rewards'] == unique_rewards[1]]
-        for _, row in next_best_cards.iterrows():
-            st.write(f"**Card:** {row['Credit Card']}")
-            if row['Transferable']:
-                st.write(f"**Rewards:** {row['Adjusted Rewards']:.2f}% ({row['Rewards']} {row['Type']} with {transferable_points_boost}x boost)")
-                st.write("_Points are transferable, increasing their value._")
-            else:
-                st.write(f"**Rewards:** {row['Rewards']} {row['Type']}")
-            st.write("---")
-
-# Citi Custom Cash Recommendation Section
-st.subheader("Citi Custom Cash Eligible Categories")
-st.write("Each month, Citi Custom Cash gives 5% back on your top spending category from the set list. Here are all the eligible categories and the next best offer for each:")
-
-
-# Remap all categories in df to canonical forms
-normalized_df = df.copy()
-normalized_df["Normalized"] = normalized_df["Category"].map(category_aliases).fillna(df["Category"])
-
-# Apply the boost to transferable points for Citi recommendations
-transferable_points_boost = 1.25
-normalized_df['Adjusted Rewards'] = normalized_df.apply(
-    lambda row: row['Rewards'] * transferable_points_boost if row['Transferable'] else row['Rewards'],
-    axis=1
-)
-
-citi_full_list = []
-
-# Get the max reward from "Everything" category as fallback
-everything_max = normalized_df[normalized_df["Category"] == "Everything"]["Adjusted Rewards"].max()
-
-for cat in citi_categories:
-    competing_df = normalized_df[normalized_df["Normalized"] == cat]
-    best_other = competing_df["Adjusted Rewards"].max() if not competing_df.empty else everything_max
-    citi_full_list.append((cat, best_other))
-
-if citi_full_list:
-    for cat, max_other in sorted(citi_full_list):
-        st.write(f"{cat} (Next best: {max_other:.2f}%)")
-else:
-    st.write("Could not retrieve Citi Custom Cash categories.")
-
-
-import re
-from datetime import datetime
-
-def update_csv(card_name, categories, rewards, card_type, is_transferable):
-    try:
-        with open('CreditCards.csv', 'r') as f:
-            lines = f.readlines()
-    except FileNotFoundError:
-        st.error("Error: CreditCards.csv not found. Please make sure the file exists in the same directory as the script.")
-        return
-
-    with open('CreditCards.csv', 'w') as f:
-        for line in lines:
-            if card_name not in line:
-                f.write(line)
-        for cat in categories:
-            f.write(f"{card_name},{cat},{rewards},{card_type},{is_transferable}\n")
-
-from thefuzz import process
-
-def get_rotating_categories(card_name, search_query, category_aliases):
-    try:
-        results = google_web_search(query=search_query)
-        # Find the categories in the search result text
-        match = re.search(r"are:\s*(.*)", results, re.IGNORECASE)
-        if match:
-            categories = [cat.strip() for cat in match.group(1).split(',')]
-            # further clean up the categories
-            categories = [cat.replace('and ', '').strip() for cat in categories]
-            
-            # Fuzzy match the categories
-            normalized_categories = []
-            for cat in categories:
-                match, score = process.extractOne(cat, category_aliases.keys())
-                if score > 70:
-                    normalized_categories.append(category_aliases[match])
+    unique_rewards = sorted(cat_df['Adjusted Rewards'].unique(), reverse=True)
+    for i, label in enumerate(["Best Option(s)", "Next Best Option(s)"]):
+        if len(unique_rewards) > i:
+            st.write(f"**{label}:**")
+            for _, row in cat_df[cat_df['Adjusted Rewards'] == unique_rewards[i]].iterrows():
+                st.write(f"**Card:** {row['Credit Card']}")
+                boost = 1.0
+                if row['Transferable']:
+                    issuer = get_issuer(row['Credit Card'])
+                    if ENABLE_BOOSTS.get(issuer, False):
+                        boost = VALUATIONS.get(issuer, 1.0)
+                
+                if boost > 1.0:
+                    st.write(f"**Rewards:** {row['Adjusted Rewards']:.2f}% ({row['Rewards']}% base x {boost}x boost)")
                 else:
-                    normalized_categories.append(cat) # Add the original if no good match is found
-            return normalized_categories
-        else:
-            st.warning(f"Could not find categories for {card_name} in the search results.")
-            return None
-    except Exception as e:
-        st.error(f"Error fetching categories for {card_name}: {e}")
-        return None
+                    st.write(f"**Rewards:** {row['Rewards']}% {row['Type']}")
+                st.write("---")
 
-# Section for dynamically updating rotating categories
-st.subheader("Update Rotating Categories")
-st.write("Click the button to automatically update the quarterly categories for your rotating cards.")
-
-if st.button("Update Categories Dynamically"):
-    current_month = datetime.now().month
-    current_year = datetime.now().year
-    current_quarter = (current_month - 1) // 3 + 1
-
-    # Update Discover It
-    discover_query = f"discover it rotating categories Q{current_quarter} {current_year}"
-    discover_categories = get_rotating_categories("Discover It", discover_query, category_aliases)
-    if discover_categories:
-        update_csv("Discover It", discover_categories, 5, "Cash Back", False)
-        st.success("Discover It categories updated!")
-
-    # Update Chase Freedom Flex
-    cff_query = f"chase freedom flex rotating categories Q{current_quarter} {current_year}"
-    cff_categories = get_rotating_categories("Chase Freedom Flex", cff_query, category_aliases)
-    if cff_categories:
-        update_csv("Chase Freedom Flex", cff_categories, 5, "Points", True)
-        st.success("Chase Freedom Flex categories updated!")
-    
-    st.rerun()
+# Citi Section
+st.subheader("Citi Custom Cash Analysis")
+everything_max = df[df["Category"] == "Everything"]["Adjusted Rewards"].max()
+for cat in sorted(citi_categories):
+    norm_cat = category_aliases.get(cat, cat)
+    comp_df = df[df["Category"].map(lambda x: category_aliases.get(x, x)) == norm_cat]
+    best_other = comp_df["Adjusted Rewards"].max() if not comp_df.empty else everything_max
+    st.write(f"{cat} (Next best: {best_other:.2f}%)")
