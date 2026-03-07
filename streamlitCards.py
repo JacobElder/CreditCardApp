@@ -12,7 +12,7 @@ from io import StringIO
 # ==========================================
 SHEET_ID = "1768M96W_Bhrna5PMGNuMOWB-i05F7vE1cVq8zO97I-w"
 
-# Set to True if you have the "Premium" card required for transfers (e.g. Sapphire, Autograph)
+# Set to True if you have the "Premium" card required for transfers
 ENABLE_BOOSTS = {
     "Chase": True,
     "Wells Fargo": True,
@@ -49,14 +49,12 @@ def fetch_data():
         def get_sheet_url(sheet_name):
             return f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={sheet_name}"
 
-        # Fetch sheets
         fixed_resp = requests.get(get_sheet_url("Fixed"), timeout=5)
         rotating_resp = requests.get(get_sheet_url("Rotating"), timeout=5)
         
         fixed_df = pd.read_csv(StringIO(fixed_resp.text)) if fixed_resp.status_code == 200 else pd.DataFrame()
         rotating_df = pd.read_csv(StringIO(rotating_resp.text)) if rotating_resp.status_code == 200 else pd.DataFrame()
 
-        # Filter rotating for current month
         now = datetime.now()
         if not rotating_df.empty and 'Start_Month' in rotating_df.columns:
             rotating_df = rotating_df[
@@ -65,31 +63,23 @@ def fetch_data():
             ]
             rotating_df = rotating_df.rename(columns={'Card': 'Credit Card'})
 
-        # Combine data
-        # To handle duplicates: we put rotating_df last and use drop_duplicates.
-        # This way, if 'Discover It' is in both, the version with the Rotating categories wins.
         combined = pd.concat([fixed_df, rotating_df], ignore_index=True)
-        
-        # Deduplicate based on Credit Card and Category
-        # keep='last' ensures the Rotating values (which were appended last) are kept
         combined = combined.drop_duplicates(subset=['Credit Card', 'Category'], keep='last')
         
         return combined[['Credit Card', 'Category', 'Rewards', 'Type', 'Transferable']]
     except Exception as e:
-        st.error(f"Error fetching data: {e}. Check sheet tab names (Fixed/Rotating).")
+        st.error(f"Error fetching data: {e}.")
         return pd.read_csv('CreditCards.csv')
 
 # Load and Process Data
 df = fetch_data()
 
 def calculate_adjusted_rewards(row):
-    """Applies empirical point valuations ONLY if user has the premium card for that issuer."""
+    """Applies empirical point valuations ONLY if user has the premium card."""
     if not row['Transferable']:
         return row['Rewards']
     
     issuer = get_issuer(row['Credit Card'])
-    
-    # Check if user has the premium card to unlock transfers for this issuer
     if not ENABLE_BOOSTS.get(issuer, False):
         return row['Rewards']
     
@@ -116,22 +106,24 @@ citi_categories = [
 st.title("Best Credit Card for Rewards")
 st.write(f"Current Date: {datetime.now().strftime('%B %d, %Y')}")
 
-# Layout setup
+# Automatic Mobile Detection Logic (Simplified)
 user_agent = st.query_params.get("user-agent", [""])[0].lower()
 is_mobile = any(device in user_agent for device in ["iphone", "android", "ipad", "mobile"])
-use_list_format = st.checkbox("Mobile Layout", value=is_mobile)
 
 # Selection
-categories = sorted(df["Category"].unique())
+categories = sorted(df["Category"].unique(), key=lambda x: x.lower())
 selected_category = None
 
-if use_list_format:
+# If on mobile, show the list. If on desktop, show the grid.
+if is_mobile:
     for cat in categories:
-        if st.button(cat.title()): selected_category = cat
+        if st.button(cat.title(), key=f"btn_{cat}"): 
+            selected_category = cat
 else:
     cols = st.columns(3)
     for i, cat in enumerate(categories):
-        if cols[i % 3].button(cat.title()): selected_category = cat
+        if cols[i % 3].button(cat.title(), key=f"btn_{cat}"): 
+            selected_category = cat
 
 if selected_category:
     st.subheader(f"Best card(s) for {selected_category}:")
