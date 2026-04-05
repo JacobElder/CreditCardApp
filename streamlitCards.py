@@ -21,11 +21,11 @@ ENABLE_BOOSTS = {
     "Amex": False,
 }
 
-# Empirical Valuations (CPP / 100) - March 2026
+# Empirical Valuations (CPP / 100) - April 2026
 VALUATIONS = {
-    "Chase": 2.0,       
-    "Wells Fargo": 1.6, 
-    "Citi": 1.8,        
+    "Chase": 2.05,       
+    "Wells Fargo": 1.65, 
+    "Citi": 1.6,        
     "Capital One": 1.85,
     "Amex": 2.0,        
     "Default": 1.0      
@@ -68,8 +68,25 @@ def fetch_data():
         
         return combined[['Credit Card', 'Category', 'Rewards', 'Type', 'Transferable']]
     except Exception as e:
-        st.error(f"Error fetching data: {e}.")
-        return pd.read_csv('CreditCards.csv')
+        st.error(f"Error fetching data: {e}. Loading local backups.")
+        try:
+            fixed_df = pd.read_csv('CreditCards.csv')
+            rotating_df = pd.read_csv('RotatingCategories.csv')
+            
+            now = datetime.now()
+            if not rotating_df.empty:
+                rotating_df = rotating_df[
+                    (rotating_df['Start_Month'] <= now.month) & 
+                    (rotating_df['End_Month'] >= now.month)
+                ]
+                rotating_df = rotating_df.rename(columns={'Card': 'Credit Card'})
+                
+            combined = pd.concat([fixed_df, rotating_df], ignore_index=True)
+            combined = combined.drop_duplicates(subset=['Credit Card', 'Category'], keep='last')
+            return combined[['Credit Card', 'Category', 'Rewards', 'Type', 'Transferable']]
+        except Exception as local_e:
+            st.error(f"Local backup failed: {local_e}")
+            return pd.read_csv('CreditCards.csv')
 
 # Load and Process Data
 df = fetch_data()
