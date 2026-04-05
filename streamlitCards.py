@@ -42,9 +42,86 @@ def get_issuer(card_name):
     if "amex" in card_name or "american express" in card_name: return "Amex"
     return "Default"
 
+from bs4 import BeautifulSoup
+import requests
+import re
+
+@st.cache_data(ttl=86400)  # Cache scraped data for 24 hours
+def scrape_rotating_categories():
+    """Scrapes Doctor of Credit for current 5% rotating categories."""
+    try:
+        now = datetime.now()
+        current_quarter = (now.month - 1) // 3 + 1
+        year = now.year
+        
+        # Doctor of Credit uses quarter-specific URLs
+        url = f"https://www.doctorofcredit.com/q{current_quarter}-{year}-5-quarterly-categories-activate-offers-suggestions-freedom-flex-discover-dividend-cash-more/"
+        
+        resp = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
+        
+        # Fallback to a general search or different pattern if the URL fails
+        if resp.status_code != 200:
+            # Try the general "current" URL pattern as a backup
+            url = "https://www.doctorofcredit.com/current-5-quarterly-bonus-cards-chase-freedom-discover-more-others/"
+            resp = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
+            if resp.status_code != 200:
+                return pd.DataFrame()
+
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        
+        scraped_data = []
+        now = datetime.now()
+        current_quarter = (now.month - 1) // 3 + 1
+        start_month = (current_quarter - 1) * 3 + 1
+        end_month = current_quarter * 3
+
+        # Locate the 5% categories
+        # On quarter-specific pages, they often use <strong> tags inside <li> or <h2>
+        for target in soup.find_all(['li', 'h2', 'h3', 'p', 'strong']):
+            text = target.get_text().lower()
+            card_name = None
+            if 'chase freedom' in text or 'chase travel' in text:
+                card_name = "Chase Freedom Flex"
+            elif 'discover' in text:
+                card_name = "Discover It"
+            
+            if card_name and (':' in text or '–' in text):
+                # Split on either colon or dash
+                delimiter = ':' if ':' in text else '–'
+                parts = text.split(delimiter, 1)
+                if len(parts) > 1:
+                    categories_raw = parts[1].split(',')
+                    for cat in categories_raw:
+                        # Clean up text and ensure it's a category, not a description
+                        clean_cat = re.sub(r'\(.*?\)', '', cat).strip().title()
+                        if clean_cat and len(clean_cat) < 50:
+                            scraped_data.append({
+                                'Credit Card': card_name,
+                                'Category': clean_cat,
+                                'Rewards': 5,
+                                'Type': 'Points' if 'Chase' in card_name else 'Cash Back',
+                                'Transferable': True if 'Chase' in card_name else False,
+                                'Start_Month': start_month,
+                                'End_Month': end_month
+                            })
+        
+        df = pd.DataFrame(scraped_data)
+        return df.drop_duplicates()
+    except Exception as e:
+        st.warning(f"Auto-scraping failed: {e}")
+        return pd.DataFrame()
+
 @st.cache_data(ttl=3600)
 def fetch_data():
-    """Fetches Fixed and Rotating cards from Google Sheets and handles duplicates."""
+    """Fetches Fixed and Rotating cards from Scraper, Google Sheets, or Local Backup."""
+    combined_rotating = pd.DataFrame()
+    
+    # 1. Try Scraping (Priority)
+    scraped_df = scrape_rotating_categories()
+    if not scraped_df.empty:
+        combined_rotating = scraped_df
+    
+    # 2. Try Google Sheets
     try:
         def get_sheet_url(sheet_name):
             return f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={sheet_name}"
@@ -53,17 +130,21 @@ def fetch_data():
         rotating_resp = requests.get(get_sheet_url("Rotating"), timeout=5)
         
         fixed_df = pd.read_csv(StringIO(fixed_resp.text)) if fixed_resp.status_code == 200 else pd.DataFrame()
-        rotating_df = pd.read_csv(StringIO(rotating_resp.text)) if rotating_resp.status_code == 200 else pd.DataFrame()
+        
+        # Merge scraped data with Sheet data (Sheet wins on conflicts)
+        sheet_rotating = pd.read_csv(StringIO(rotating_resp.text)) if rotating_resp.status_code == 200 else pd.DataFrame()
+        if not sheet_rotating.empty:
+            sheet_rotating = sheet_rotating.rename(columns={'Card': 'Credit Card'})
+            combined_rotating = pd.concat([combined_rotating, sheet_rotating], ignore_index=True)
 
         now = datetime.now()
-        if not rotating_df.empty and 'Start_Month' in rotating_df.columns:
-            rotating_df = rotating_df[
-                (rotating_df['Start_Month'] <= now.month) & 
-                (rotating_df['End_Month'] >= now.month)
+        if not combined_rotating.empty and 'Start_Month' in combined_rotating.columns:
+            combined_rotating = combined_rotating[
+                (combined_rotating['Start_Month'] <= now.month) & 
+                (combined_rotating['End_Month'] >= now.month)
             ]
-            rotating_df = rotating_df.rename(columns={'Card': 'Credit Card'})
 
-        combined = pd.concat([fixed_df, rotating_df], ignore_index=True)
+        combined = pd.concat([fixed_df, combined_rotating], ignore_index=True)
         combined = combined.drop_duplicates(subset=['Credit Card', 'Category'], keep='last')
         
         return combined[['Credit Card', 'Category', 'Rewards', 'Type', 'Transferable']]
