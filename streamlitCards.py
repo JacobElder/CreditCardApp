@@ -7,6 +7,11 @@ from datetime import datetime
 import requests
 from io import StringIO
 
+st.set_page_config(
+    page_title="Credit Card Rewards",
+    layout="wide",
+)
+
 # ==========================================
 # CONFIGURATION & USER PREFERENCES
 # ==========================================
@@ -23,16 +28,15 @@ ENABLE_BOOSTS = {
 
 # Empirical Valuations (CPP / 100) - April 2026
 VALUATIONS = {
-    "Chase": 2.05,       
-    "Wells Fargo": 1.65, 
-    "Citi": 1.6,        
+    "Chase": 2.05,
+    "Wells Fargo": 1.65,
+    "Citi": 1.6,
     "Capital One": 1.85,
-    "Amex": 2.0,        
-    "Default": 1.0      
+    "Amex": 2.0,
+    "Default": 1.0
 }
 
 def get_issuer(card_name):
-    """Identifies the issuer based on the card name."""
     card_name = card_name.lower()
     if "chase" in card_name: return "Chase"
     if "wells fargo" in card_name: return "Wells Fargo"
@@ -43,40 +47,33 @@ def get_issuer(card_name):
     return "Default"
 
 from bs4 import BeautifulSoup
-import requests
 import re
 
-@st.cache_data(ttl=86400)  # Cache scraped data for 24 hours
+@st.cache_data(ttl=86400)
 def scrape_rotating_categories():
-    """Scrapes Doctor of Credit for current 5% rotating categories."""
+    """Returns (df, error_str_or_None, scraped_at_or_None)."""
     try:
         now = datetime.now()
         current_quarter = (now.month - 1) // 3 + 1
         year = now.year
-        
-        # Doctor of Credit uses quarter-specific URLs
+
         url = f"https://www.doctorofcredit.com/q{current_quarter}-{year}-5-quarterly-categories-activate-offers-suggestions-freedom-flex-discover-dividend-cash-more/"
-        
         resp = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
-        
-        # Fallback to a general search or different pattern if the URL fails
+
         if resp.status_code != 200:
-            # Try the general "current" URL pattern as a backup
             url = "https://www.doctorofcredit.com/current-5-quarterly-bonus-cards-chase-freedom-discover-more-others/"
             resp = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
             if resp.status_code != 200:
-                return pd.DataFrame()
+                return pd.DataFrame(), "Doctor of Credit unreachable", None
 
         soup = BeautifulSoup(resp.text, 'html.parser')
-        
+
         scraped_data = []
         now = datetime.now()
         current_quarter = (now.month - 1) // 3 + 1
         start_month = (current_quarter - 1) * 3 + 1
         end_month = current_quarter * 3
 
-        # Locate the 5% categories
-        # On quarter-specific pages, they often use <strong> tags inside <li> or <h2>
         for target in soup.find_all(['li', 'h2', 'h3', 'p', 'strong']):
             text = target.get_text().lower()
             card_name = None
@@ -84,15 +81,13 @@ def scrape_rotating_categories():
                 card_name = "Chase Freedom Flex"
             elif 'discover' in text:
                 card_name = "Discover It"
-            
+
             if card_name and (':' in text or '–' in text):
-                # Split on either colon or dash
                 delimiter = ':' if ':' in text else '–'
                 parts = text.split(delimiter, 1)
                 if len(parts) > 1:
                     categories_raw = parts[1].split(',')
                     for cat in categories_raw:
-                        # Clean up text and ensure it's a category, not a description
                         clean_cat = re.sub(r'\(.*?\)', '', cat).strip().title()
                         if clean_cat and len(clean_cat) < 50:
                             scraped_data.append({
@@ -104,34 +99,31 @@ def scrape_rotating_categories():
                                 'Start_Month': start_month,
                                 'End_Month': end_month
                             })
-        
+
         df = pd.DataFrame(scraped_data)
-        return df.drop_duplicates()
+        return df.drop_duplicates(), None, datetime.now()
     except Exception as e:
-        st.warning(f"Auto-scraping failed: {e}")
-        return pd.DataFrame()
+        return pd.DataFrame(), str(e), None
 
 @st.cache_data(ttl=3600)
 def fetch_data():
-    """Fetches Fixed and Rotating cards from Scraper, Google Sheets, or Local Backup."""
+    """Returns (df, source_label, fetched_at, scrape_error)."""
     combined_rotating = pd.DataFrame()
-    
-    # 1. Try Scraping (Priority)
-    scraped_df = scrape_rotating_categories()
+    fetched_at = datetime.now()
+
+    scraped_df, scrape_error, _scraped_at = scrape_rotating_categories()
     if not scraped_df.empty:
         combined_rotating = scraped_df
-    
-    # 2. Try Google Sheets
+
     try:
         def get_sheet_url(sheet_name):
             return f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={sheet_name}"
 
         fixed_resp = requests.get(get_sheet_url("Fixed"), timeout=5)
         rotating_resp = requests.get(get_sheet_url("Rotating"), timeout=5)
-        
+
         fixed_df = pd.read_csv(StringIO(fixed_resp.text)) if fixed_resp.status_code == 200 else pd.DataFrame()
-        
-        # Merge scraped data with Sheet data (Sheet wins on conflicts)
+
         sheet_rotating = pd.read_csv(StringIO(rotating_resp.text)) if rotating_resp.status_code == 200 else pd.DataFrame()
         if not sheet_rotating.empty:
             sheet_rotating = sheet_rotating.rename(columns={'Card': 'Credit Card'})
@@ -140,47 +132,45 @@ def fetch_data():
         now = datetime.now()
         if not combined_rotating.empty and 'Start_Month' in combined_rotating.columns:
             combined_rotating = combined_rotating[
-                (combined_rotating['Start_Month'] <= now.month) & 
+                (combined_rotating['Start_Month'] <= now.month) &
                 (combined_rotating['End_Month'] >= now.month)
             ]
 
         combined = pd.concat([fixed_df, combined_rotating], ignore_index=True)
         combined = combined.drop_duplicates(subset=['Credit Card', 'Category'], keep='last')
-        
-        return combined[['Credit Card', 'Category', 'Rewards', 'Type', 'Transferable']]
-    except Exception as e:
-        st.error(f"Error fetching data: {e}. Loading local backups.")
+
+        source = "live" if not scraped_df.empty else "sheets"
+        return combined[['Credit Card', 'Category', 'Rewards', 'Type', 'Transferable']], source, fetched_at, scrape_error
+    except Exception:
         try:
             fixed_df = pd.read_csv('CreditCards.csv')
             rotating_df = pd.read_csv('RotatingCategories.csv')
-            
+
             now = datetime.now()
             if not rotating_df.empty:
                 rotating_df = rotating_df[
-                    (rotating_df['Start_Month'] <= now.month) & 
+                    (rotating_df['Start_Month'] <= now.month) &
                     (rotating_df['End_Month'] >= now.month)
                 ]
                 rotating_df = rotating_df.rename(columns={'Card': 'Credit Card'})
-                
+
             combined = pd.concat([fixed_df, rotating_df], ignore_index=True)
             combined = combined.drop_duplicates(subset=['Credit Card', 'Category'], keep='last')
-            return combined[['Credit Card', 'Category', 'Rewards', 'Type', 'Transferable']]
-        except Exception as local_e:
-            st.error(f"Local backup failed: {local_e}")
-            return pd.read_csv('CreditCards.csv')
+            return combined[['Credit Card', 'Category', 'Rewards', 'Type', 'Transferable']], "local", fetched_at, scrape_error
+        except Exception:
+            return pd.read_csv('CreditCards.csv'), "local", fetched_at, scrape_error
 
 # Load and Process Data
-df = fetch_data()
+df, data_source, data_fetched_at, scrape_error = fetch_data()
 
 def calculate_adjusted_rewards(row):
-    """Applies empirical point valuations ONLY if user has the premium card."""
     if not row['Transferable']:
         return row['Rewards']
-    
+
     issuer = get_issuer(row['Credit Card'])
     if not ENABLE_BOOSTS.get(issuer, False):
         return row['Rewards']
-    
+
     multiplier = VALUATIONS.get(issuer, VALUATIONS["Default"])
     return row['Rewards'] * multiplier
 
@@ -202,31 +192,35 @@ citi_categories = [
 ]
 
 st.title("Best Credit Card for Rewards")
-st.write(f"Current Date: {datetime.now().strftime('%B %d, %Y')}")
+st.caption(f"Data refreshed: {data_fetched_at.strftime('%B %d, %Y at %I:%M %p')}")
 
-# Automatic Mobile Detection Logic (Simplified)
+if scrape_error:
+    st.warning(f"Could not auto-fetch rotating categories from Doctor of Credit — showing manually entered data. ({scrape_error})")
+elif data_source == "local":
+    st.warning("Could not reach online data sources — using local backup data.")
+
+# Mobile Detection
 user_agent = st.query_params.get("user-agent", [""])[0].lower()
 is_mobile = any(device in user_agent for device in ["iphone", "android", "ipad", "mobile"])
 
-# Selection
+# Category Selection
 categories = sorted(df["Category"].unique(), key=lambda x: x.lower())
 selected_category = None
 
-# If on mobile, show the list. If on desktop, show the grid.
 if is_mobile:
     for cat in categories:
-        if st.button(cat.title(), key=f"btn_{cat}"): 
+        if st.button(cat.title(), key=f"btn_{cat}"):
             selected_category = cat
 else:
     cols = st.columns(3)
     for i, cat in enumerate(categories):
-        if cols[i % 3].button(cat.title(), key=f"btn_{cat}"): 
+        if cols[i % 3].button(cat.title(), key=f"btn_{cat}"):
             selected_category = cat
 
 if selected_category:
     st.subheader(f"Best card(s) for {selected_category}:")
     cat_df = df[df["Category"] == selected_category].sort_values(by="Adjusted Rewards", ascending=False)
-    
+
     unique_rewards = sorted(cat_df['Adjusted Rewards'].unique(), reverse=True)
     for i, label in enumerate(["Best Option(s)", "Next Best Option(s)"]):
         if len(unique_rewards) > i:
@@ -238,12 +232,17 @@ if selected_category:
                     issuer = get_issuer(row['Credit Card'])
                     if ENABLE_BOOSTS.get(issuer, False):
                         boost = VALUATIONS.get(issuer, 1.0)
-                
+
                 if boost > 1.0:
                     st.write(f"**Rewards:** {row['Adjusted Rewards']:.2f}% ({row['Rewards']}% base x {boost}x boost)")
                 else:
                     st.write(f"**Rewards:** {row['Rewards']}% {row['Type']}")
                 st.write("---")
+
+    with st.expander("All cards for this category"):
+        display_df = cat_df[['Credit Card', 'Rewards', 'Adjusted Rewards', 'Type']].copy()
+        display_df.columns = ['Card', 'Base %', 'Adjusted %', 'Type']
+        st.dataframe(display_df.reset_index(drop=True), use_container_width=True)
 
 # Citi Section
 st.subheader("Citi Custom Cash Analysis")
