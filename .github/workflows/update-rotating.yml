@@ -1,0 +1,52 @@
+name: Update rotating categories
+
+# Checks Doctor of Credit and Frequent Miler once a day for the current and next quarter's
+# 5% categories and commits RotatingCategories.csv when something new validates. Quarters
+# that both sources have filled in (or that were hand-edited) are skipped, so most days
+# make no requests for them and change nothing. The run fails, and GitHub emails you, if
+# the current quarter has no data or if a source's page layout changed and needs a fix.
+# Results from a source that still works are committed either way.
+on:
+  schedule:
+    - cron: "17 13 * * *"  # 9:17 ET (8:17 in winter)
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Re-scrape quarters that are already in the CSV"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-rotating
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Run tests
+        run: python -m pytest -q
+      - name: Scrape
+        run: python rotating_scraper.py ${{ inputs.force && '--force' || '' }}
+      - name: Commit changes
+        if: ${{ !cancelled() }}
+        run: |
+          if git diff --quiet -- RotatingCategories.csv; then
+            echo "No changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add RotatingCategories.csv
+          git commit -m "Update rotating categories from Doctor of Credit"
+          git push
