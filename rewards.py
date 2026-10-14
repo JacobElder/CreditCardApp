@@ -298,16 +298,22 @@ def rank_category(df, category):
 
 
 def best_by_preset(base, category, boosts=ENABLE_BOOSTS, presets=VALUATION_PRESETS):
-    """{preset: best card(s)} for a category, to show whether the pick depends on valuation.
+    """{preset: [best card(s)]} for a category, to show whether the pick depends on valuation.
 
-    `base` is the combined table before add_valuations. Ties are joined with " / ".
+    `base` is the combined table before add_valuations. Tied cards share a list.
     """
     result = {}
     for name, valuations in presets.items():
         ranked = rank_category(add_valuations(base, boosts, valuations), category)
         if not ranked.empty:
-            result[name] = " / ".join(reward_tiers(ranked, n=1)[0]["Credit Card"])
+            result[name] = list(reward_tiers(ranked, n=1)[0]["Credit Card"])
     return result
+
+
+def depends_on_valuation(picks):
+    """True unless some card is (at least tied for) best under every preset."""
+    common = set.intersection(*(set(cards) for cards in picks.values())) if picks else set()
+    return bool(picks) and not common
 
 
 def reward_tiers(ranked, n=2):

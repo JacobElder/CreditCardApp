@@ -167,17 +167,19 @@ def test_citi_analysis_compares_against_everyday_cards(cards):
 def test_best_by_preset_flags_valuation_dependent_pick():
     base = rw.clean_fixed(rw.read_csv_text(FIXED_CSV))
     picks = rw.best_by_preset(base, "Online Shopping")
-    assert picks["Optimistic"] == "Wells Fargo Active Cash"  # 2 x 1.75 = 3.5%
-    assert picks["Conservative"] == "Bank of America Customized Cash Rewards"  # 2 x 1.4 = 2.8% < 3%
-    assert picks["Cash"] == "Bank of America Customized Cash Rewards"
+    assert picks["Optimistic"] == ["Wells Fargo Active Cash"]  # 2 x 1.75 = 3.5%
+    assert picks["Conservative"] == ["Bank of America Customized Cash Rewards"]  # 2 x 1.4 = 2.8% < 3%
+    assert picks["Cash"] == ["Bank of America Customized Cash Rewards"]
+    assert rw.depends_on_valuation(picks)
 
 
 def test_best_by_preset_stable_pick():
     base = rw.clean_fixed(rw.read_csv_text(FIXED_CSV))
     picks = rw.best_by_preset(base, "Dining")
-    assert picks["Conservative"] == picks["Optimistic"] == "Chase Sapphire Preferred"
-    # At 1¢ a point, Sapphire's 3x ties Savor's 3% cash back
-    assert picks["Cash"] == "Capital One Savor / Chase Sapphire Preferred"
+    assert picks["Conservative"] == picks["Optimistic"] == ["Chase Sapphire Preferred"]
+    # At 1¢ a point, Sapphire's 3x ties Savor's 3% cash back - still a winner, so no flag
+    assert picks["Cash"] == ["Capital One Savor", "Chase Sapphire Preferred"]
+    assert not rw.depends_on_valuation(picks)
 
 
 def test_cash_preset_values_points_at_one_cent():

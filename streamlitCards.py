@@ -155,9 +155,9 @@ if choice:
     category = rw.EVERYTHING if choice == EVERYTHING_LABEL else choice
     ranked = rw.rank_category(df, category)
     picks = rw.best_by_preset(base, category)
-    if len(set(picks.values())) > 1:
+    if rw.depends_on_valuation(picks):
         st.info("The best card depends on how you redeem points: "
-                + "; ".join(f"{name}: {md_escape(card)}" for name, card in picks.items()))
+                + "; ".join(f"{name}: {md_escape(' / '.join(cards))}" for name, cards in picks.items()))
     for label, tier in zip(["Best", "Next best"], rw.reward_tiers(ranked)):
         st.markdown(f"#### {label}")
         for _, row in tier.iterrows():
@@ -173,9 +173,15 @@ st.subheader("Citi Custom Cash: where would it help most?")
 citi = rw.citi_custom_cash_analysis(df, valuations=rw.VALUATION_PRESETS[preset])
 top = citi.iloc[0]
 if top["Gain %"] > 0:
+    tied = citi[citi["Gain %"] == top["Gain %"]]
+    if len(tied) == 1:
+        where = f"**{top['Category']}**"
+    else:
+        where = "a tie between " + ", ".join(f"**{c}**" for c in tied["Category"])
+    alternatives = " / ".join(dict.fromkeys(tied["Best other card"]))
     st.write(
-        f"Its 5% would add the most in **{top['Category']}**: {top['Gain %']:.2f}% more than your best "
-        f"alternative, {md_escape(top['Best other card'])} ({top['Best other %']:.2f}%)."
+        f"Its 5% would add the most in {where}: {top['Gain %']:.2f}% more than your best "
+        f"alternative, {md_escape(alternatives)} ({top['Best other %']:.2f}%)."
     )
 else:
     st.write("Your other cards already match or beat 5% in every Custom Cash category.")
