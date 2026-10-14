@@ -1,5 +1,5 @@
-streamlit
-pandas
-requests
-thefuzz
-beautifulsoup4
+streamlit==1.60.0
+pandas==2.3.3
+requests==2.34.2
+beautifulsoup4==4.13.5
+tzdata>=2023.3

@@ -1,12 +1,25 @@
-Card,Category,Rewards,Type,Transferable,Start_Month,End_Month
-Discover It,Grocery Stores,5,Cash Back,False,1,3
-Discover It,Wholesale Clubs,5,Cash Back,False,1,3
-Discover It,Streaming,5,Cash Back,False,1,3
-Chase Freedom Flex,Dining,5,Points,True,1,3
-Chase Freedom Flex,Norwegian Cruise Line,5,Points,True,1,3
-Chase Freedom Flex,American Heart Association,5,Points,True,1,3
-Discover It,Restaurants,5,Cash Back,False,4,6
-Discover It,Home Improvement,5,Cash Back,False,4,6
-Chase Freedom Flex,Amazon,5,Points,True,4,6
-Chase Freedom Flex,Chase Travel,5,Points,True,4,6
-Chase Freedom Flex,Feeding America,5,Points,True,4,6
+Credit Card,Category,Rewards,Type,Transferable,Year,Quarter,Source
+Chase Freedom Flex,American Heart Association,5,Points,True,2026,1,manual
+Chase Freedom Flex,Dining,5,Points,True,2026,1,manual
+Chase Freedom Flex,Norwegian Cruise Line,5,Points,True,2026,1,manual
+Discover It,Grocery Stores,5,Cash Back,False,2026,1,manual
+Discover It,Streaming,5,Cash Back,False,2026,1,manual
+Discover It,Wholesale Clubs,5,Cash Back,False,2026,1,manual
+Chase Freedom Flex,Amazon,5,Points,True,2026,2,manual
+Chase Freedom Flex,Chase Travel,5,Points,True,2026,2,manual
+Chase Freedom Flex,Feeding America,5,Points,True,2026,2,manual
+Discover It,Dining,5,Cash Back,False,2026,2,manual
+Discover It,Home Improvement,5,Cash Back,False,2026,2,manual
+Chase Freedom Flex,Entertainment,5,Points,True,2026,3,doctorofcredit+frequentmiler
+Chase Freedom Flex,Gas,5,Points,True,2026,3,doctorofcredit+frequentmiler
+Chase Freedom Flex,Transit,5,Points,True,2026,3,doctorofcredit+frequentmiler
+Chase Freedom Flex,United Way,5,Points,True,2026,3,frequentmiler
+Discover It,Drugstores,5,Cash Back,False,2026,3,doctorofcredit+frequentmiler
+Discover It,Gas,5,Cash Back,False,2026,3,doctorofcredit+frequentmiler
+Discover It,Transportation,5,Cash Back,False,2026,3,doctorofcredit+frequentmiler
+Chase Freedom Flex,American Red Cross,5,Points,True,2026,4,frequentmiler
+Chase Freedom Flex,Dining,5,Points,True,2026,4,doctorofcredit+frequentmiler
+Chase Freedom Flex,Grocery Stores,5,Points,True,2026,4,doctorofcredit+frequentmiler
+Discover It,Dining,5,Cash Back,False,2026,4,doctorofcredit+frequentmiler
+Discover It,Entertainment,5,Cash Back,False,2026,4,doctorofcredit+frequentmiler
+Discover It,Utilities,5,Cash Back,False,2026,4,doctorofcredit+frequentmiler
