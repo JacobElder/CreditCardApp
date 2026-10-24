@@ -5,3 +5,5 @@ omit = test_*.py
 
 [report]
 show_missing = True
+exclude_also =
+    if __name__ == .__main__.:
