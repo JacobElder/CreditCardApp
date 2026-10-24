@@ -99,6 +99,7 @@ CATEGORY_ALIASES = {
     "travel": "Travel",
     "transit": "Transit",
     "public transit": "Transit",
+    "transportation": "Transit",
     "ev charging": "Gas",
     "everything": EVERYTHING,
 }
@@ -156,9 +157,12 @@ class DataError(ValueError):
 
 
 def _to_bool(value):
+    # A blank CSV row makes pandas read a 1/0 column as floats, so 1.0 must count too
     if isinstance(value, bool):
         return value
-    return str(value).strip().lower() in {"true", "yes", "y", "1"}
+    if isinstance(value, (int, float)):
+        return value == 1
+    return str(value).strip().lower() in {"true", "yes", "y", "1", "1.0"}
 
 
 def read_csv_text(text):
@@ -184,7 +188,7 @@ def clean_table(df, required_columns):
     df["Credit Card"] = df["Credit Card"].astype("string").str.strip()
     df["Category"] = df["Category"].map(normalize_category)
     df["Rewards"] = pd.to_numeric(
-        df["Rewards"].astype("string").str.replace("%", "").str.strip(), errors="coerce"
+        df["Rewards"].astype("string").str.replace(r"[%xX]", "", regex=True).str.strip(), errors="coerce"
     )
     df["Transferable"] = df["Transferable"].map(_to_bool)
     df["Type"] = df["Type"].fillna("").astype(str).str.strip()
@@ -283,6 +287,21 @@ def card_note(row):
         if fragment.lower() in row["Credit Card"].lower():
             return note
     return ""
+
+
+def md_escape(text):
+    # $ too: two dollar amounts in one string would otherwise render as LaTeX
+    return re.sub(r"([\\`*_{}\[\]()#+!|<>~$])", r"\\\1", str(text))
+
+
+def format_rate(row):
+    base, mult = row["Rewards"], row["Multiplier"]
+    if mult > 1:
+        earned = f"{base:g}x points" if "point" in row["Type"].lower() else f"{base:g}% back, transferred as points"
+        return f"**{row['Adjusted Rewards']:.2f}%** value ({earned} × {mult:g}¢)"
+    if "point" in row["Type"].lower():
+        return f"**{base:g}%** ({base:g}x points at 1¢)"
+    return f"**{base:g}%** cash back"
 
 
 def rank_category(df, category):

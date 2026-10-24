@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-import re
 from datetime import datetime
 from pathlib import Path
 
@@ -23,7 +21,9 @@ EVERYTHING_LABEL = "Anything else"
 # ==========================================
 # DATA LOADING
 # ==========================================
-@st.cache_data(ttl=3600, show_spinner=False)
+# Failures are cached too (so an outage doesn't add a 5s timeout to every click),
+# which is why these TTLs are short: a blip shouldn't pin users to the fallback for long.
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_sheet_tab(tab):
     """Returns (csv_text, None) or (None, error)."""
     url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={tab}"
@@ -38,13 +38,15 @@ def fetch_sheet_tab(tab):
     return resp.text, None
 
 
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def scrape_live(year, quarter):
     """Last-resort live scrape. Returns (df, None) or (None, reason)."""
     try:
         df = rotating_scraper.fetch_quarter(year, quarter)
     except rotating_scraper.ScrapeError as e:
         return None, str(e)
+    except Exception as e:  # a scraper bug shouldn't take the page down
+        return None, f"scraper error ({e.__class__.__name__})"
     return (df, None) if df is not None else (None, "Doctor of Credit hasn't posted this quarter yet")
 
 
@@ -58,7 +60,12 @@ def load_fixed(warnings, status):
         except rw.DataError as e:
             err = str(e)
     warnings.append(f"Couldn't use the Google Sheet's Fixed tab ({err}). Using the local backup CSV instead.")
-    fixed = rw.clean_fixed(pd.read_csv(LOCAL_FIXED))
+    try:
+        fixed = rw.clean_fixed(pd.read_csv(LOCAL_FIXED))
+    except (OSError, ValueError) as e:  # DataError and pandas parser errors are ValueErrors
+        st.error(f"No card data available: the Google Sheet failed ({err}) and "
+                 f"CreditCards.csv couldn't be read ({e}).")
+        st.stop()
     status.append(f"Fixed rewards: local CreditCards.csv ({len(fixed)} rows)")
     return fixed
 
@@ -79,8 +86,11 @@ def load_rotating(year, quarter, warnings, status):
     else:
         status.append(f"Sheet Rotating tab unavailable: {err}")
 
-    repo_rows, _ = rw.clean_rotating(pd.read_csv(LOCAL_ROTATING))
-    sources.append(("RotatingCategories.csv (auto-updated)", repo_rows))
+    try:
+        repo_rows, _ = rw.clean_rotating(pd.read_csv(LOCAL_ROTATING))
+        sources.append(("RotatingCategories.csv (auto-updated)", repo_rows))
+    except (OSError, ValueError) as e:
+        status.append(f"RotatingCategories.csv unreadable: {e}")
 
     rotating, picked = rw.rotating_for_quarter(sources, year, quarter)
     if rotating.empty:
@@ -105,29 +115,15 @@ def load_data(year, quarter):
 # ==========================================
 # FORMATTING
 # ==========================================
-def md_escape(text):
-    return re.sub(r"([\\`*_{}\[\]()#+!|<>~])", r"\\\1", str(text))
-
-
-def format_rate(row):
-    base, mult = row["Rewards"], row["Multiplier"]
-    if mult > 1:
-        earned = f"{base:g}x points" if "point" in row["Type"].lower() else f"{base:g}% back, transferred as points"
-        return f"**{row['Adjusted Rewards']:.2f}%** value ({earned} × {mult:g}¢)"
-    if "point" in row["Type"].lower():
-        return f"**{base:g}%** ({base:g}x points at 1¢)"
-    return f"**{base:g}%** cash back"
-
-
 def render_card(row):
     with st.container(border=True):
-        st.markdown(f"**{md_escape(row['Credit Card'])}** · {format_rate(row)}")
+        st.markdown(f"**{rw.md_escape(row['Credit Card'])}** · {rw.format_rate(row)}")
         details = [rw.card_note(row)]
         if row["Basis"] == "everyday rate":
             details.insert(0, "everyday rate")
         details = [d for d in details if d]
         if details:
-            st.caption(" · ".join(details))
+            st.caption(" · ".join(rw.md_escape(d) for d in details))
 
 
 # ==========================================
@@ -157,7 +153,7 @@ if choice:
     picks = rw.best_by_preset(base, category)
     if rw.depends_on_valuation(picks):
         st.info("The best card depends on how you redeem points: "
-                + "; ".join(f"{name}: {md_escape(' / '.join(cards))}" for name, cards in picks.items()))
+                + "; ".join(f"{name}: {rw.md_escape(' / '.join(cards))}" for name, cards in picks.items()))
     for label, tier in zip(["Best", "Next best"], rw.reward_tiers(ranked)):
         st.markdown(f"#### {label}")
         for _, row in tier.iterrows():
@@ -181,7 +177,7 @@ if top["Gain %"] > 0:
     alternatives = " / ".join(dict.fromkeys(tied["Best other card"]))
     st.write(
         f"Its 5% would add the most in {where}: {top['Gain %']:.2f}% more than your best "
-        f"alternative, {md_escape(alternatives)} ({top['Best other %']:.2f}%)."
+        f"alternative, {rw.md_escape(alternatives)} ({top['Best other %']:.2f}%)."
     )
 else:
     st.write("Your other cards already match or beat 5% in every Custom Cash category.")
@@ -189,4 +185,4 @@ st.dataframe(citi, hide_index=True, width="stretch")
 
 with st.expander("Data sources"):
     for line in status:
-        st.write(f"- {md_escape(line)}")
+        st.write(f"- {rw.md_escape(line)}")
