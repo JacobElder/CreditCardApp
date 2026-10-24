@@ -3,6 +3,12 @@ import pytest
 
 import rotating_scraper as rs
 
+
+@pytest.fixture(autouse=True)
+def no_step_summary(monkeypatch):
+    # GitHub sets this in CI; tests calling main() mustn't write to the real job summary
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+
 DOC_PAGE = """
 <html><body><div class="entry-content">
 <p>It's now possible to activate all 5% category credit cards for the third quarter of 2026.</p>
