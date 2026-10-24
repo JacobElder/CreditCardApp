@@ -1,0 +1,10 @@
+target-version = "py311"
+line-length = 120
+
+[lint]
+select = ["E", "F", "W", "B", "I", "UP"]
+ignore = [
+    "E501",  # long lines are fine
+    "E701",  # one-line `if x: return y` in get_issuer
+    "B905",  # zip() truncating is intended (e.g. fewer tiers than labels)
+]

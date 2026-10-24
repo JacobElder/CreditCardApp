@@ -21,7 +21,7 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
-from rewards import ROTATING_COLUMNS, clean_rotating, current_quarter, normalize_category, quarter_label
+from rewards import ROTATING_COLUMNS, DataError, clean_rotating, current_quarter, normalize_category, quarter_label
 
 USER_AGENT = "CreditCardRewardsApp/1.0 (+https://github.com/JacobElder/CreditCardApp)"
 CSV_PATH = Path(__file__).with_name("RotatingCategories.csv")
@@ -33,6 +33,8 @@ CARDS = {
     "chase freedom": ("Chase Freedom Flex", "Points", True),
     "discover": ("Discover It", "Cash Back", False),
 }
+
+CARD_NAMES = {card for card, _type, _transferable in CARDS.values()}
 
 QUARTER_START_MONTH = {1: "january", 2: "april", 3: "july", 4: "october"}
 _DASH = re.compile(r"\s+[–—-]\s+")
@@ -184,11 +186,15 @@ def fetch_all(year, quarter, sources=SOURCES):
         except ScrapeError as e:
             status[source.name] = f"ERROR {e}"
             continue
+        except Exception as e:  # a parser bug in one source mustn't lose the other
+            status[source.name] = f"ERROR unexpected {e.__class__.__name__}: {e}"
+            continue
         if found is None:
             status[source.name] = "not published yet"
-        else:
-            rows += found
-            status[source.name] = "ok"
+            continue
+        rows += found
+        missing = CARD_NAMES - {r["Credit Card"] for r in found}
+        status[source.name] = f"ok, no section for {', '.join(sorted(missing))}" if missing else "ok"
     return (merge_rows(rows) if rows else None), status
 
 
@@ -208,10 +214,27 @@ def _sources_in(df):
     return {name for value in df["Source"] for name in str(value).split("+")}
 
 
+def _per_source(df):
+    """One row per card+category+source (undoes the '+' join from merge_rows)."""
+    if df.empty:
+        return []
+    return [{**row, "Source": name} for row in df.to_dict("records") for name in str(row["Source"]).split("+")]
+
+
+def _row_set(df):
+    return {tuple(r) for r in df[CSV_COLUMNS].astype(str).itertuples(index=False)}
+
+
 def load_csv(path):
+    """Raises ScrapeError rather than silently dropping rows, since the result is written back."""
     if not Path(path).exists():
         return pd.DataFrame(columns=CSV_COLUMNS)
-    df, _dropped = clean_rotating(pd.read_csv(path))
+    try:
+        df, dropped = clean_rotating(pd.read_csv(path))
+    except (DataError, pd.errors.ParserError) as e:
+        raise ScrapeError(f"{path} is unreadable ({e}); fix it by hand") from e
+    if dropped:
+        raise ScrapeError(f"{path} has {dropped} row(s) without Year/Quarter; fix them by hand")
     if "Source" not in df.columns:
         df["Source"] = MANUAL
     df["Source"] = df["Source"].fillna(MANUAL).replace("", MANUAL)
@@ -224,10 +247,12 @@ def write_csv(df, path):
 
 
 def update_csv(path, quarters, force=False, fetch=None):
-    """Fill in quarters until every source has contributed.
+    """Fill in quarters until every source has contributed for every card.
 
-    A quarter is left alone if any of its rows are hand-edited (Source blank or
-    'manual'), unless force=True. Returns (report lines, error count, final df).
+    Rows from a source that didn't report this run are kept, so one site being down
+    never erases what the other site said earlier. A quarter is left alone if any of
+    its rows are hand-edited (Source blank or 'manual'), unless force=True, which
+    replaces the hand-edited rows. Returns (report lines, error count, final df).
     """
     fetch = fetch or fetch_all
     df = load_csv(path)
@@ -235,24 +260,32 @@ def update_csv(path, quarters, force=False, fetch=None):
     for year, quarter in quarters:
         label = quarter_label(year, quarter)
         mask = (df["Year"] == year) & (df["Quarter"] == quarter)
-        have = _sources_in(df[mask])
+        existing = df[mask]
+        have = _sources_in(existing)
         if mask.any() and not force:
-            if MANUAL in have or not (SOURCE_NAMES - have):
-                why = "hand-edited" if MANUAL in have else "all sources in"
-                report.append(f"{label}: up to date ({why}), skipped")
+            if MANUAL in have:
+                report.append(f"{label}: up to date (hand-edited), skipped")
+                continue
+            if not (SOURCE_NAMES - have) and CARD_NAMES <= set(existing["Credit Card"]):
+                report.append(f"{label}: up to date (all sources in), skipped")
                 continue
         new, status = fetch(year, quarter)
         for source, state in status.items():
             report.append(f"{label} {source}: {state}")
             errors += state.startswith("ERROR")
-        if new is None or (not force and _sources_in(new) <= have):
+        if new is None:
             continue
-        df = pd.concat([df[~mask], new], ignore_index=True)
+        refreshed = _sources_in(new)
+        kept = [r for r in _per_source(existing) if r["Source"] in SOURCE_NAMES - refreshed]
+        merged = merge_rows(kept + _per_source(new))
+        if _row_set(merged) == _row_set(existing):
+            continue
+        df = pd.concat([df[~mask], merged], ignore_index=True)
         changed = True
-        summary = "; ".join(f"{card}: {', '.join(g['Category'])}" for card, g in new.groupby("Credit Card"))
+        summary = "; ".join(f"{card}: {', '.join(g['Category'])}" for card, g in merged.groupby("Credit Card"))
         report.append(f"{label}: saved {summary}")
-        single = new[~new["Source"].str.contains(r"\+")]
-        if len(_sources_in(new)) > 1 and not single.empty:
+        single = merged[~merged["Source"].str.contains(r"\+")]
+        if len(_sources_in(merged)) > 1 and not single.empty:
             report.append(f"{label}: listed by only one source: "
                           + ", ".join(f"{r['Category']} ({r['Source']})" for _, r in single.iterrows()))
     if changed:
@@ -274,7 +307,11 @@ def main(argv=None):
     else:
         quarters = [current, next_quarter(*current)]
 
-    report, errors, df = update_csv(args.csv, quarters, force=args.force)
+    try:
+        report, errors, df = update_csv(args.csv, quarters, force=args.force)
+    except ScrapeError as e:
+        print(e, file=sys.stderr)
+        return 1
     for line in report:
         print(line)
     summary_file = os.environ.get("GITHUB_STEP_SUMMARY")
