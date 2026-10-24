@@ -468,3 +468,19 @@ def test_load_csv_treats_missing_source_column_as_hand_edited(tmp_path):
     path = tmp_path / "rot.csv"
     path.write_text("Credit Card,Category,Rewards,Type,Transferable,Year,Quarter\nDiscover It,Gas,5,Cash Back,False,2026,4\n")
     assert list(rs.load_csv(path)["Source"]) == [rs.MANUAL]
+
+
+def test_update_drops_category_a_source_retracted(tmp_path):
+    path = tmp_path / "rot.csv"
+    rs.write_csv(pd.DataFrame([_row("Discover It", "Gas", 4, "doctorofcredit"),
+                               _row("Discover It", "Dining", 4, "doctorofcredit")]), path)
+    corrected = rs.merge_rows([_row("Discover It", "Dining", 4, "doctorofcredit")])
+    rs.update_csv(path, [(2026, 4)], fetch=lambda y, q: (corrected, {"doctorofcredit": "ok", "frequentmiler": "not published yet"}))
+    assert list(rs.load_csv(path)["Category"]) == ["Dining"]
+
+
+def test_fm_rejects_card_followed_by_unrelated_categories_heading():
+    page = FM_PAGE.replace("<h2>Discover</h2>\n<h3>Bonus Categories</h3>",
+                           "<h2>Discover</h2>\n<h2>Other Cards with 5% Categories</h2>")
+    with pytest.raises(rs.ScrapeError, match="Bonus Categories"):
+        rs.FrequentMiler().parse(page, 2026, 4)
