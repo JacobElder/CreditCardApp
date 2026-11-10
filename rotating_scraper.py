@@ -15,6 +15,7 @@ import argparse
 import os
 import re
 import sys
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -39,22 +40,40 @@ CARD_NAMES = {card for card, _type, _transferable in CARDS.values()}
 QUARTER_START_MONTH = {1: "january", 2: "april", 3: "july", 4: "october"}
 _DASH = re.compile(r"\s+[–—-]\s+")
 
+# Seconds to wait before each retry of a timeout, dropped connection, 429 or 5xx.
+# The scheduled job uses these; the app passes () so a page load doesn't hang.
+RETRY_DELAYS = (5, 20)
+UNREACHABLE = "UNREACHABLE"
+
 
 class ScrapeError(RuntimeError):
     pass
 
 
-def _get(url, timeout=15):
+class FetchError(ScrapeError):
+    """The site couldn't be reached (after retries). Likely temporary, unlike a layout change."""
+
+
+def _get(url, timeout=15, retry_delays=RETRY_DELAYS):
     """Returns the page HTML, or None if it hasn't been published yet (404)."""
-    try:
-        resp = requests.get(url, timeout=timeout, headers={"User-Agent": USER_AGENT})
-    except requests.RequestException as e:
-        raise ScrapeError(f"request failed: {e.__class__.__name__}") from e
-    if resp.status_code == 404:
-        return None
-    if resp.status_code != 200:
-        raise ScrapeError(f"HTTP {resp.status_code} from {url}")
-    return resp.text
+    delays = list(retry_delays)
+    while True:
+        try:
+            resp = requests.get(url, timeout=timeout, headers={"User-Agent": USER_AGENT})
+        except requests.RequestException as e:
+            error = FetchError(f"request failed: {e.__class__.__name__}")
+            error.__cause__ = e
+        else:
+            if resp.status_code == 404:
+                return None
+            if resp.status_code == 200:
+                return resp.text
+            if resp.status_code != 429 and resp.status_code < 500:
+                raise ScrapeError(f"HTTP {resp.status_code} from {url}")
+            error = FetchError(f"HTTP {resp.status_code} from {url}")
+        if not delays:
+            raise error
+        time.sleep(delays.pop(0))
 
 
 def _text(el):
@@ -156,9 +175,9 @@ SOURCES = [DoctorOfCredit(), FrequentMiler()]
 SOURCE_NAMES = {s.name for s in SOURCES}
 
 
-def fetch_source(source, year, quarter):
+def fetch_source(source, year, quarter, retry_delays=RETRY_DELAYS):
     """Returns a list of rows, or None if the page isn't published yet. Raises ScrapeError."""
-    html = _get(source.url_template.format(year=year, quarter=quarter))
+    html = _get(source.url_template.format(year=year, quarter=quarter), retry_delays=retry_delays)
     if html is None:
         return None
     rows = source.parse(html, year, quarter)
@@ -177,12 +196,15 @@ def merge_rows(rows):
               .agg(lambda s: "+".join(sorted(set(s)))))
 
 
-def fetch_all(year, quarter, sources=SOURCES):
+def fetch_all(year, quarter, sources=SOURCES, retry_delays=RETRY_DELAYS):
     """Returns (merged rows or None if no source has published, {source: status})."""
     rows, status = [], {}
     for source in sources:
         try:
-            found = fetch_source(source, year, quarter)
+            found = fetch_source(source, year, quarter, retry_delays=retry_delays)
+        except FetchError as e:
+            status[source.name] = f"{UNREACHABLE} {e}"
+            continue
         except ScrapeError as e:
             status[source.name] = f"ERROR {e}"
             continue
@@ -200,8 +222,8 @@ def fetch_all(year, quarter, sources=SOURCES):
 
 def fetch_quarter(year, quarter):
     """For the app: merged rows, or None. Raises ScrapeError only if every source errored."""
-    df, status = fetch_all(year, quarter)
-    if df is None and all(s.startswith("ERROR") for s in status.values()):
+    df, status = fetch_all(year, quarter, retry_delays=())
+    if df is None and all(s.startswith(("ERROR", UNREACHABLE)) for s in status.values()):
         raise ScrapeError("; ".join(f"{k}: {v}" for k, v in status.items()))
     return df
 
@@ -252,7 +274,8 @@ def update_csv(path, quarters, force=False, fetch=None):
     Rows from a source that didn't report this run are kept, so one site being down
     never erases what the other site said earlier. A quarter is left alone if any of
     its rows are hand-edited (Source blank or 'manual'), unless force=True, which
-    replaces the hand-edited rows. Returns (report lines, error count, final df).
+    replaces the hand-edited rows. Returns (report lines, error count, final df), where
+    the count is sources that failed to parse; unreachable sites are only reported.
     """
     fetch = fetch or fetch_all
     df = load_csv(path)
@@ -273,6 +296,9 @@ def update_csv(path, quarters, force=False, fetch=None):
         for source, state in status.items():
             report.append(f"{label} {source}: {state}")
             errors += state.startswith("ERROR")
+            if state.startswith(UNREACHABLE) and os.environ.get("GITHUB_ACTIONS"):
+                # Shows as a yellow annotation on the run without failing it
+                print(f"::warning::{label} {source}: {state}; will try again next run")
         if new is None:
             continue
         refreshed = _sources_in(new)

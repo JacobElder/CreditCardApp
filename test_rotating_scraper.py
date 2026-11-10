@@ -8,6 +8,14 @@ import rotating_scraper as rs
 def no_step_summary(monkeypatch):
     # GitHub sets this in CI; tests calling main() mustn't write to the real job summary
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def no_retry_sleep(monkeypatch):
+    sleeps = []
+    monkeypatch.setattr(rs.time, "sleep", sleeps.append)
+    return sleeps
 
 DOC_PAGE = """
 <html><body><div class="entry-content">
@@ -128,7 +136,7 @@ class FakeSource:
 def test_fetch_all_survives_one_source_failing(monkeypatch):
     doc, fm = rs.DoctorOfCredit(), rs.FrequentMiler()
 
-    def fake_fetch_source(source, year, quarter):
+    def fake_fetch_source(source, year, quarter, **_):
         if source is doc:
             raise rs.ScrapeError("layout changed")
         return fm.parse(FM_PAGE, year, quarter)
@@ -137,6 +145,16 @@ def test_fetch_all_survives_one_source_failing(monkeypatch):
     df, status = rs.fetch_all(2026, 4, sources=[doc, fm])
     assert status == {"doctorofcredit": "ERROR layout changed", "frequentmiler": "ok"}
     assert len(df) == 6
+
+
+def test_fetch_all_marks_network_failures_unreachable(monkeypatch):
+    def fake_fetch_source(source, year, quarter, **_):
+        raise rs.FetchError("request failed: ReadTimeout")
+
+    monkeypatch.setattr(rs, "fetch_source", fake_fetch_source)
+    df, status = rs.fetch_all(2026, 4, sources=[rs.FrequentMiler()])
+    assert df is None
+    assert status == {"frequentmiler": "UNREACHABLE request failed: ReadTimeout"}
 
 
 # --- CSV updates ---------------------------------------------------------------
@@ -225,10 +243,21 @@ def test_get_returns_text_or_none_when_unpublished(monkeypatch, response, expect
     assert seen["User-Agent"] == rs.USER_AGENT
 
 
-def test_get_raises_on_server_error(monkeypatch):
-    monkeypatch.setattr(rs.requests, "get", lambda *a, **k: FakeResponse(503))
-    with pytest.raises(rs.ScrapeError, match="HTTP 503"):
+@pytest.mark.parametrize("code", [429, 503])
+def test_get_retries_then_raises_on_server_error(monkeypatch, no_retry_sleep, code):
+    calls = []
+    monkeypatch.setattr(rs.requests, "get", lambda *a, **k: calls.append(1) or FakeResponse(code))
+    with pytest.raises(rs.FetchError, match=f"HTTP {code}"):
         rs._get("https://example.com")
+    assert len(calls) == len(rs.RETRY_DELAYS) + 1
+    assert no_retry_sleep == list(rs.RETRY_DELAYS)
+
+
+def test_get_does_not_retry_client_errors(monkeypatch, no_retry_sleep):
+    monkeypatch.setattr(rs.requests, "get", lambda *a, **k: FakeResponse(403))
+    with pytest.raises(rs.ScrapeError, match="HTTP 403") as e:
+        rs._get("https://example.com")
+    assert not isinstance(e.value, rs.FetchError) and no_retry_sleep == []
 
 
 def test_get_raises_on_network_error(monkeypatch):
@@ -236,22 +265,45 @@ def test_get_raises_on_network_error(monkeypatch):
         raise rs.requests.Timeout()
 
     monkeypatch.setattr(rs.requests, "get", timeout)
-    with pytest.raises(rs.ScrapeError, match="Timeout"):
+    with pytest.raises(rs.FetchError, match="Timeout") as e:
         rs._get("https://example.com")
+    assert isinstance(e.value.__cause__, rs.requests.Timeout)
+
+
+def test_get_recovers_after_a_timeout(monkeypatch, no_retry_sleep):
+    responses = [rs.requests.ReadTimeout(), FakeResponse(200, "<html>")]
+
+    def flaky(*a, **k):
+        r = responses.pop(0)
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+    monkeypatch.setattr(rs.requests, "get", flaky)
+    assert rs._get("https://example.com") == "<html>"
+    assert no_retry_sleep == [rs.RETRY_DELAYS[0]]
+
+
+def test_get_without_retries_tries_once(monkeypatch, no_retry_sleep):
+    calls = []
+    monkeypatch.setattr(rs.requests, "get", lambda *a, **k: calls.append(1) or FakeResponse(503))
+    with pytest.raises(rs.FetchError):
+        rs._get("https://example.com", retry_delays=())
+    assert len(calls) == 1 and no_retry_sleep == []
 
 
 def test_fetch_source(monkeypatch):
     doc = rs.DoctorOfCredit()
-    monkeypatch.setattr(rs, "_get", lambda url: None)
+    monkeypatch.setattr(rs, "_get", lambda url, **_: None)
     assert rs.fetch_source(doc, 2026, 4) is None
 
     no_cards = '<div class="entry-content"><p>Dates: October 1 - December 31, 2026</p><h2>Citi Dividend – Dining</h2></div>'
-    monkeypatch.setattr(rs, "_get", lambda url: no_cards)
+    monkeypatch.setattr(rs, "_get", lambda url, **_: no_cards)
     with pytest.raises(rs.ScrapeError, match="no Chase Freedom or Discover"):
         rs.fetch_source(doc, 2026, 4)
 
     urls = []
-    monkeypatch.setattr(rs, "_get", lambda url: urls.append(url) or DOC_PAGE)
+    monkeypatch.setattr(rs, "_get", lambda url, **_: urls.append(url) or DOC_PAGE)
     assert _pairs(rs.fetch_source(doc, 2026, 4)) == Q4_CORE
     assert "q4-2026" in urls[0]
 
@@ -296,7 +348,7 @@ def test_merge_rows_lists_each_source_once():
 def test_fetch_all_survives_unexpected_parser_error(monkeypatch):
     doc, fm = rs.DoctorOfCredit(), rs.FrequentMiler()
 
-    def fake_fetch_source(source, year, quarter):
+    def fake_fetch_source(source, year, quarter, **_):
         if source is doc:
             raise AttributeError("'NoneType' object has no attribute 'find_all'")
         return fm.parse(FM_PAGE, year, quarter)
@@ -310,17 +362,24 @@ def test_fetch_all_survives_unexpected_parser_error(monkeypatch):
 def test_fetch_all_reports_missing_card_section(monkeypatch):
     doc = rs.DoctorOfCredit()
     page = DOC_PAGE.replace("<h2>Discover – Utilities, Restaurants, and Entertainment</h2>", "")
-    monkeypatch.setattr(rs, "_get", lambda url: page)
+    monkeypatch.setattr(rs, "_get", lambda url, **_: page)
     df, status = rs.fetch_all(2026, 4, sources=[doc])
     assert status == {"doctorofcredit": "ok, no section for Discover It"}
     assert set(df["Credit Card"]) == {"Chase Freedom Flex"}
 
 
 def test_fetch_quarter_raises_only_when_every_source_errors(monkeypatch):
-    monkeypatch.setattr(rs, "fetch_all", lambda y, q: (None, {"a": "ERROR x", "b": "ERROR y"}))
+    seen = {}
+
+    def fake_fetch_all(y, q, **kwargs):
+        seen.update(kwargs)
+        return None, {"a": "ERROR x", "b": "UNREACHABLE y"}
+
+    monkeypatch.setattr(rs, "fetch_all", fake_fetch_all)
     with pytest.raises(rs.ScrapeError, match="a: ERROR x"):
         rs.fetch_quarter(2026, 4)
-    monkeypatch.setattr(rs, "fetch_all", lambda y, q: (None, {"a": "ERROR x", "b": "not published yet"}))
+    assert seen == {"retry_delays": ()}  # the app shouldn't wait on retries
+    monkeypatch.setattr(rs, "fetch_all", lambda y, q, **_: (None, {"a": "ERROR x", "b": "not published yet"}))
     assert rs.fetch_quarter(2026, 4) is None
 
 
@@ -437,6 +496,16 @@ def test_main_exit_codes(tmp_path, monkeypatch):
     assert rs.main(["--csv", str(path), "--quarter", "2026-4"]) == 0
 
 
+def test_main_warns_but_passes_when_a_site_is_unreachable(tmp_path, monkeypatch, capsys):
+    path = _seed_current_quarter(tmp_path, monkeypatch)
+    monkeypatch.setattr(rs, "fetch_all", lambda y, q: (None, {"frequentmiler": "UNREACHABLE request failed: ReadTimeout"}))
+    assert rs.main(["--csv", str(path), "--quarter", "2026-4"]) == 0
+    assert "::warning::" not in capsys.readouterr().out
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    assert rs.main(["--csv", str(path), "--quarter", "2026-4"]) == 0
+    assert "::warning::Q4 2026 frequentmiler: UNREACHABLE request failed: ReadTimeout" in capsys.readouterr().out
+
+
 def test_main_fails_cleanly_on_unreadable_csv(tmp_path, monkeypatch, capsys):
     path = tmp_path / "rot.csv"
     path.write_text("Credit Card,Category\nDiscover It,Gas\n")
@@ -464,7 +533,7 @@ def test_main_writes_github_step_summary(tmp_path, monkeypatch):
 
 
 def test_fetch_all_when_nothing_published(monkeypatch):
-    monkeypatch.setattr(rs, "fetch_source", lambda source, year, quarter: None)
+    monkeypatch.setattr(rs, "fetch_source", lambda source, year, quarter, **_: None)
     df, status = rs.fetch_all(2026, 4)
     assert df is None and set(status.values()) == {"not published yet"}
     assert list(rs.merge_rows([]).columns) == rs.CSV_COLUMNS

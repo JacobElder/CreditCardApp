@@ -5,7 +5,9 @@ name: Update rotating categories
 # that both sources have filled in (or that were hand-edited) are skipped, so most days
 # make no requests for them and change nothing. The run fails, and GitHub emails you, if
 # the current quarter has no data or if a source's page layout changed and needs a fix.
-# Results from a source that still works are committed either way.
+# Timeouts and server errors are retried; a site that's still down only adds a warning,
+# since the next day's run will pick it up. Results from a source that still works are
+# committed either way.
 on:
   schedule:
     - cron: "17 13 * * *"  # 9:17 ET (8:17 in winter)
